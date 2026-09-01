@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.next/
+outbox/
+# Every env variant, because `.env` alone did not match `.env.production`,
+# `.env.worker` or anything else someone adds later. PROBE_HASH_PEPPER cannot be
+# rotated if it leaks (rotating it orphans every suppression row, which makes
+# every person who opted out contactable again), so this pattern is deliberately
+# broader than the files that exist today.
+.env*
+!.env.example
+*.tsbuildinfo
+.turbo/
+coverage/

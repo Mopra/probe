@@ -1,0 +1,22 @@
+# The repo is authored on Windows and runs on Linux: Vercel builds apps/web, and
+# a VPS runs apps/worker under systemd. Normalising to LF in the index keeps a
+# CRLF from reaching a place where it matters.
+#
+# The one that would actually bite: deploy/probe-worker.service. systemd
+# tolerates CRLF in most fields but not all, and a unit that fails to parse on
+# deploy day is a bad way to find out.
+* text=auto eol=lf
+
+# Binary-ish and generated files that must never be line-ending normalised.
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# The lockfile is generated. Marking it keeps it out of code review diffs.
+pnpm-lock.yaml -diff linguist-generated=true
+
+# .eml files are RFC 5322 and REQUIRE CRLF. None are committed today (outbox/ is
+# ignored), but if a fixture ever is, normalising it would silently corrupt it.
+*.eml -text

@@ -1,0 +1,17 @@
+{
+  "name": "@probe/db",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist", "schema.sql", "migrations"],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "migrate": "tsx scripts/migrate.ts"
+  },
+  "dependencies": {
+    "@probe/config": "workspace:*",
+    "postgres": "^3.4.5"
+  }
+}

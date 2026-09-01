@@ -1,0 +1,35 @@
+{
+  "name": "probe",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Internal lead generation and cold outreach sender for Pradsgaard Labs EMV products",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -b packages/config packages/core packages/db apps/worker",
+    "build:web": "pnpm --filter @probe/web build",
+    "clean": "tsc -b --clean packages/config packages/core packages/db apps/worker",
+    "typecheck": "tsc -b packages/config packages/core packages/db apps/worker && pnpm --filter @probe/web typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint:copy": "pnpm --filter @probe/worker dry-run",
+    "migrate": "pnpm --filter @probe/db migrate",
+    "seed": "pnpm --filter @probe/worker seed",
+    "dry-run": "pnpm --filter @probe/worker dry-run",
+    "worker": "pnpm --filter @probe/worker start",
+    "web:dev": "pnpm --filter @probe/web dev"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "tsx": "^4.19.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

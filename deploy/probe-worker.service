@@ -1,0 +1,77 @@
+# probe worker. Cron jobs (sweep, resolve, generate) plus the send daemon.
+#
+#   sudo cp deploy/probe-worker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now probe-worker
+#   journalctl -u probe-worker -f
+#
+# Every job is also runnable one-shot:
+#   pnpm --filter @probe/worker cli sweep
+# Never debug by waiting for 06:30.
+
+[Unit]
+Description=probe worker (sweep, resolve, generate, send)
+Documentation=file:/opt/probe/docs/RUNBOOK.md
+After=network-online.target
+Wants=network-online.target
+
+# A crash loop must not silently become a sending loop. Give up after five
+# restarts in two minutes so systemd surfaces the failure instead of hiding it.
+#
+# These two live in [Unit], not [Service]. They were in [Service], where modern
+# systemd ignores them with a warning -- so the protection this comment
+# describes was not actually in effect.
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+[Service]
+Type=simple
+User=probe
+Group=probe
+WorkingDirectory=/opt/probe
+
+# Secrets only. probe.toml is committed and read from WorkingDirectory.
+# Mode 600, owned by the probe user: it holds DAY3_API_KEY and PROBE_HASH_PEPPER,
+# and the pepper cannot be rotated if it leaks (§9.3).
+EnvironmentFile=/opt/probe/.env
+Environment=NODE_ENV=production
+Environment=TZ=Europe/Copenhagen
+
+ExecStart=/usr/bin/node apps/worker/dist/index.js
+
+Restart=always
+RestartSec=10
+
+# JSON lines on stdout: journalctl -u probe-worker -o cat | jq
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=probe-worker
+
+# On boot, when PROBE_SEND_ENABLED=true, the worker runs the send preflight and
+# refuses to start if the Day3 key, the webhook secret, the public base url or
+# the postal address are not usable (§5.1). A refusal here is systemd reporting
+# a failed unit, which is the intended outcome: every one of those faults
+# produces mail that looks fine in the log and is broken in the inbox.
+#
+# It also resolves any send left in 'sending' by a previous process, marking each
+# one failed so it stops holding a contact-once slot (§8.6).
+
+# The worker reads config, writes ./outbox in dry-run, and talks to the network.
+# Nothing else.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/opt/probe/outbox
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,73 @@
+# probe configuration. Committed. Secrets live in env only.
+#
+# This file SEEDS the database. On worker boot each [campaigns.*] block is
+# upserted into `campaigns` by slug: static fields are overwritten from this
+# file, runtime-mutable state (paused, warmup_start) is never touched.
+# Everything at runtime reads the table, never this file.
+
+[global]
+timezone      = "Europe/Copenhagen"
+send_days     = ["mon", "tue", "wed", "thu", "fri"]
+send_window   = ["09:00", "16:00"]
+gap_floor_minutes = 4
+gap_jitter    = 0.4
+
+# §9.1 jurisdiction gate. The loader refuses to start if "DK" ever appears here.
+# EU countries are added one at a time, only after legal sign-off.
+allowed_countries = ["US"]
+
+# CAN-SPAM footer requirement (§9.2.7).
+#
+# ---> THIS IS THE ONE LINE YOU MUST EDIT BEFORE ANYTHING CAN BE APPROVED. <---
+#
+# The copy lint rejects a placeholder, so while this line reads as it does, every
+# email fails the lint at generation, at approval and at dispatch. `pnpm dry-run`
+# shows it on every fixture. That is deliberate: the lint cannot tell a real
+# address from a fake one, so it rejects anything with angle brackets, anything
+# with no street number or postcode, and anything carrying template vocabulary.
+# A real address passes; nothing else does.
+postal_address = "Pradsgaard Labs, Bogfinkevej 2, 7400 Herning, Denmark"
+
+# Public base URL of apps/web. Unsubscribe, click and data-notice links.
+public_base_url = "https://probe.exit1.dev"
+
+# §6 generator contract
+generator_concurrency  = 3
+generator_timeout_ms   = 30000
+generator_budget_ms    = 7200000   # two hours, elapsed-time budget
+generator_max_attempts = 3
+generator_min_severity = 1         # probe mails severity 1 only
+
+# §5.5 auto-pause thresholds (half of AWS's)
+complaint_rate_threshold = 0.0005
+bounce_rate_threshold    = 0.03
+rate_window_days         = 7
+
+# §8.3 paid lookup cap, last resort only
+paid_lookup_monthly_cap = 50
+
+# Sending identities below must be on a domain VERIFIED IN DAY3 (§5.1), under
+# Domains in the Day3 dashboard. probe does not hold AWS credentials: Day3 owns
+# the SES account and the reputation, and probe is one more caller of its
+# transactional API. Any local part on a verified domain works, with no
+# pre-created sender.
+
+[campaigns.exit1]
+product       = "exit1.dev"
+generator_url = "https://exit1.dev/api/probe/generate"
+from_name     = "Morten Pradsgaard"
+from_email    = "morten@mail.exit1.dev"
+reply_to      = "morten@mail.exit1.dev"
+daily_cap     = 50
+exclude_tags  = ["monitoring", "observability", "uptime", "status-page", "apm"]
+exclude_keywords = ["uptime monitor", "status page", "observability", "monitoring platform", "apm", "incident management"]
+
+[campaigns.day3]
+product       = "day3.app"
+generator_url = "https://day3.app/api/probe/generate"
+from_name     = "Morten Pradsgaard"
+from_email    = "morten@mail.day3.app"
+reply_to      = "morten@mail.day3.app"
+daily_cap     = 25
+exclude_tags  = []
+exclude_keywords = []

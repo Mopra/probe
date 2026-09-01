@@ -1,0 +1,105 @@
+@import "tailwindcss";
+
+/* probe operator console.
+   One person, one desk, read at speed. Near black ground, hairline structure,
+   a single accent used only for "nominal" and "selected". Amber and red are
+   reserved for the two things that can go wrong, so they stay loud. */
+@theme {
+  --color-ink: #08090b;
+  --color-surface: #0d0f13;
+  --color-raised: #14171d;
+  --color-edge: #1e232b;
+  --color-edge-strong: #2c333d;
+
+  --color-fg: #e4e7eb;
+  --color-dim: #98a1ae;
+  --color-faint: #5c6672;
+
+  --color-signal: #31c9ae;
+  --color-signal-dim: #1c6e60;
+  --color-warn: #e0a33e;
+  --color-warn-dim: #6d4f1c;
+  --color-danger: #f0555b;
+  --color-danger-dim: #6d2529;
+
+  --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", Menlo,
+    Consolas, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    background-color: var(--color-ink);
+    color: var(--color-fg);
+  }
+
+  body {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--color-signal-dim);
+    color: #ffffff;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-signal);
+    outline-offset: 2px;
+  }
+
+  /* Native controls read as part of the panel, not as browser chrome. */
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  select option {
+    background: var(--color-raised);
+    color: var(--color-fg);
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+
+  details > summary {
+    cursor: pointer;
+    list-style: none;
+  }
+
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+}
+
+@layer components {
+  /* The micro label. Every panel and column head uses exactly this. */
+  .lbl {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.2;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
