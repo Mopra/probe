@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "tsc -b ../../packages/config ../../packages/core ../../packages/db && next build",
     "start": "next start",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc -b ../../packages/config ../../packages/core ../../packages/db && tsc --noEmit"
   },
   "dependencies": {
     "@probe/config": "workspace:*",
