@@ -12,3 +12,5 @@ outbox/
 *.tsbuildinfo
 .turbo/
 coverage/
+
+.vercel
