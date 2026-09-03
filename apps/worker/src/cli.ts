@@ -24,6 +24,7 @@ const COMMANDS = [
   'hash',
   'erase',
   'stuck',
+  'smoke',
 ] as const;
 
 type Command = (typeof COMMANDS)[number];
@@ -33,6 +34,10 @@ interface Flags {
   out?: string;
   limit?: number;
   yes: boolean;
+  /** smoke only: the address the test email goes to. */
+  to?: string;
+  /** smoke only: the first name the copy greets. */
+  name?: string;
   /** Bare arguments, in order: `warmup exit1 2026-09-08` -> ['exit1', '...']. */
   positional: string[];
 }
@@ -45,8 +50,12 @@ function parseFlags(argv: string[]): Flags {
     else if (arg === '--yes' || arg === '-y') flags.yes = true;
     else if (arg === '--out') flags.out = argv[++i];
     else if (arg === '--limit') flags.limit = Number(argv[++i]);
+    else if (arg === '--to') flags.to = argv[++i];
+    else if (arg === '--name') flags.name = argv[++i];
     else if (arg.startsWith('--out=')) flags.out = arg.slice('--out='.length);
     else if (arg.startsWith('--limit=')) flags.limit = Number(arg.slice('--limit='.length));
+    else if (arg.startsWith('--to=')) flags.to = arg.slice('--to='.length);
+    else if (arg.startsWith('--name=')) flags.name = arg.slice('--name='.length);
     else if (!arg.startsWith('-')) flags.positional.push(arg);
   }
   return flags;
@@ -70,11 +79,15 @@ function usage(): void {
   console.log('  stuck      list or resolve sends left mid-dispatch by a crashed worker');
   console.log('  hash       peppered hash of an address, for a GDPR request (§9.3)');
   console.log('  erase      GDPR erasure by address or hash: `erase a@b.com --yes`');
+  console.log('  smoke      put one chosen product into the real pipeline, addressed to you:');
+  console.log('             `smoke https://their.site --to you@example.com`');
   console.log('');
   console.log('flags:');
   console.log('  --from-db        dry-run only: render every ready proof instead of fixtures');
   console.log('  --out <dir>      dry-run only: where to write .eml files');
   console.log('  --limit <n>      dry-run and health: cap the rows read');
+  console.log('  --to <email>     smoke only: who the test email is addressed to');
+  console.log('  --name <first>   smoke only: the first name the copy greets');
   console.log('  --yes            erase and stuck: actually do it, rather than showing what would happen');
 }
 
@@ -380,6 +393,7 @@ async function main(): Promise<number> {
 
     case 'health': {
       const { healthStats, dashboardStats } = await import('@probe/db');
+      const { capForWarmupDay } = await import('@probe/core');
       const { loadConfig } = await import('@probe/config');
       const { sendEnabled } = await import('./send/runtime');
       const cfg = loadConfig();
@@ -397,9 +411,14 @@ async function main(): Promise<number> {
       console.log('');
       console.log('campaigns');
       for (const c of dash.campaigns) {
+        // Today's cap, not the campaign's configured ceiling. On warmup day 1
+        // those are 5 and 50, and printing the ceiling here says the send loop
+        // has forty-five sends left when it has none. `/` already does this.
+        const capToday = capForWarmupDay(c.warmup_day, c.daily_cap);
         console.log(
           `  ${c.slug.padEnd(10)} ${c.paused ? 'paused ' : 'active '} ` +
-            `warmup day ${c.warmup_day}  cap ${c.daily_cap}  sent today ${c.sent_today}`,
+            `warmup day ${c.warmup_day}  cap ${capToday} of ${c.daily_cap}  ` +
+            `sent today ${c.sent_today}`,
         );
       }
       console.log('');
@@ -439,6 +458,108 @@ async function main(): Promise<number> {
         `contacted_other_campaign ${health.contacted_other_campaign.count}  ` +
           `(${(health.contacted_other_campaign.share_of_matched * 100).toFixed(1)}% of matched)`,
       );
+      return 0;
+    }
+
+    case 'smoke': {
+      // The end-to-end rehearsal (§13 M6). It inserts a product you name as a
+      // lead and pins the contact to an address you name, which is the one
+      // thing the pipeline cannot do for itself: the cascade would find the
+      // founder, and the whole point is that the email comes to you.
+      //
+      // Nothing else is special-cased. The jurisdiction gate, campaign match,
+      // suppression, contact-once, the generator, the copy lint, approval in
+      // /queue, the pause flag, the warmup cap, the send window and the pacing
+      // gap all still apply, because a rehearsal that skips the gates rehearses
+      // nothing. That is also why this stops at the queue: approval is a human
+      // gate and this command does not have hands.
+      const { normalizeDomain, normalizeEmail, normalizeUrl } = await import('@probe/core');
+      const { getLeadByDomain, insertLead, upsertSource } = await import('@probe/db');
+      const { resolveOneLead } = await import('./jobs/resolve');
+
+      const rawUrl = flags.positional[0];
+      if (!rawUrl || !flags.to) {
+        console.error('usage: cli smoke <url> --to <email> [--name <first>]');
+        return 2;
+      }
+      const url = normalizeUrl(rawUrl);
+      const domain = url ? normalizeDomain(url) : null;
+      if (!url || !domain) {
+        console.error(`"${rawUrl}" is not a usable product url`);
+        return 1;
+      }
+      const to = normalizeEmail(flags.to);
+      if (!to) {
+        console.error(`"${flags.to}" is not a usable email address`);
+        return 1;
+      }
+
+      // The FK on leads.source_id has to point somewhere. A real source row,
+      // permanently disabled, so a sweep never touches it and /health tells
+      // the truth about where these leads came from.
+      await upsertSource({ id: 'manual', name: 'Manually entered', kind: 'manual', enabled: false });
+
+      const inserted = await insertLead({
+        source_id: 'manual',
+        external_id: `smoke:${domain}`,
+        name: domain,
+        url,
+        domain,
+        description: null,
+        tags: [],
+        launched_at: new Date(),
+      });
+      // leads_domain_uniq rejects the insert when this domain is already a
+      // lead, swept or smoked. Re-running against the same product is the
+      // normal case, so reuse the row rather than refusing.
+      const lead = inserted ?? (await getLeadByDomain(domain));
+      if (!lead) {
+        console.error(`could not insert or find a lead for ${domain}`);
+        return 1;
+      }
+      console.log(`lead     ${lead.id}  ${lead.domain}  ${inserted ? 'new' : 'existing'}`);
+      if (lead.status === 'dropped') {
+        console.log(`  this lead was already dropped: ${lead.drop_reason ?? 'no reason recorded'}`);
+        console.log('  a drop is permanent (§8.2). Smoke a different product.');
+        return 1;
+      }
+
+      const { lead: after, summary } = await resolveOneLead(lead.id, {
+        email: to,
+        first_name: flags.name ?? null,
+      });
+
+      console.log(`to       ${to}`);
+      console.log(
+        `country  ${after.jurisdiction ?? 'unknown'} (${after.jurisdiction_source ?? 'no source'})`,
+      );
+      console.log(`status   ${after.status}${after.drop_reason ? `  dropped: ${after.drop_reason}` : ''}`);
+      console.log('');
+
+      if (after.status !== 'contact_resolved') {
+        // Every one of these is the pipeline working, so say which gate closed
+        // rather than reporting a failure.
+        const why =
+          summary.jurisdiction_blocked > 0
+            ? `the jurisdiction gate: ${after.jurisdiction ?? 'unknown'} is not in allowed_countries`
+            : summary.no_match > 0
+              ? 'no campaign matched it. Check exclude_tags and exclude_keywords in probe.toml'
+              : summary.suppressed > 0
+                ? `${to} is suppressed, permanently and by design`
+                : summary.contacted_other_campaign > 0
+                  ? `${to} already carries a live send. \`cli erase ${to} --yes\` releases it`
+                  : 'see the log line above';
+        console.log(`stopped at ${why}.`);
+        return 1;
+      }
+
+      console.log('next:');
+      console.log('  cli generate                    real generator call, 60-90 min, re-poll to finish');
+      console.log('  open /queue                     read it, then approve');
+      console.log('  cli send                        dispatches inside the window, weekdays 09:00-16:00');
+      console.log('');
+      console.log(`afterwards: \`cli erase ${to} --yes\` releases the address, so the`);
+      console.log('next rehearsal to the same inbox is not refused by contact-once.');
       return 0;
     }
   }

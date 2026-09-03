@@ -129,6 +129,8 @@ pnpm --filter @probe/worker cli warmup exit1     # start the curve. Until this, 
 pnpm --filter @probe/worker cli stuck            # sends left mid-dispatch by a crashed worker
 pnpm --filter @probe/worker cli hash  a@b.com    # peppered hash, for a GDPR request
 pnpm --filter @probe/worker cli erase a@b.com    # GDPR erasure by address or hash
+pnpm --filter @probe/worker cli smoke https://their.site --to you@example.com
+                                                 # one chosen product, real pipeline, mail to you
 ```
 
 ## Daily shape

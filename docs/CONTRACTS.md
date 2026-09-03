@@ -86,7 +86,7 @@ export interface Env {
   PROBE_APPROVER: string;           // default 'morten'
   PROBE_OUTBOX_DIR: string;         // default './outbox'
   DAY3_API_KEY?: string;            // day3_live_... The worker sends through this
-  DAY3_API_BASE_URL: string;        // default 'https://day3.app'
+  DAY3_API_BASE_URL: string;        // default 'https://go.day3.app', not the apex
   DAY3_WEBHOOK_SECRET?: string;     // whsec_... verifies /hooks/day3
   SNS_ALLOWED_TOPIC_ARNS: string[]; // parsed from comma separated. INBOUND only,
                                     // and required: empty means none, not any

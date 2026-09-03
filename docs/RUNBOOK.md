@@ -72,6 +72,17 @@ worker's `.env`. A `day3_test_…` key is rejected by Day3 and by `cli preflight
 
 The key never reaches `apps/web`: only the worker sends.
 
+The API is on **`go.day3.app`**, which is what `DAY3_API_BASE_URL` defaults to.
+The apex `day3.app` serves the marketing site and returns a 404 HTML page for
+`/api/v1/emails`, so pointing at it fails every send in a way that looks like a
+routing problem rather than a configuration one. Check a deployment with:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  -H 'content-type: application/json' -d '{}' \
+  https://go.day3.app/api/v1/emails          # 401 unauthenticated, 400 with a good key
+```
+
 ### 2.4 The webhook
 
 Create a webhook endpoint pointing at `https://<web-host>/hooks/day3` and
@@ -427,6 +438,66 @@ Read every single email before approving it. Watch bounces obsessively.
 Note that `a` in `/queue` approves with no confirmation. On the day you are
 reading every email before approving, that is one keystroke between reading and
 sent.
+
+---
+
+## 6.5 The end-to-end rehearsal
+
+Do this once before step 7, and again after any change to the send path. It
+answers the question `pnpm dry-run` cannot: does a real email, generated from a
+real finding, actually arrive in a real inbox and look right there.
+
+```bash
+pnpm --filter @probe/worker cli smoke https://some-product.com --to you@example.com --name You
+```
+
+The product is one you choose. The address is yours. Everything between them is
+the production path: `smoke` inserts the lead and pins the contact to the
+address you named, and that is the only thing it does that the pipeline would
+not do for itself. The cascade is the one step it stands in for, because the
+cascade would find the founder and the whole point is that this lands with you.
+
+Jurisdiction still gates, matching still routes, suppression is still checked on
+both sides of the contact, contact-once still applies, and the command stops at
+`contact_resolved`. From there you drive the same three steps the daemon drives:
+
+```bash
+pnpm --filter @probe/worker cli generate    # the real generator, 60-90 min. Re-run to poll
+open /queue                                 # read it like a stranger would, then approve
+pnpm --filter @probe/worker cli send        # dispatches, inside the window
+```
+
+Then read what arrives. Both parts, every link, the unsubscribe especially.
+
+That last step needs the same five gates as any other send, because it *is* any
+other send: `PROBE_SEND_ENABLED=true`, the campaign unpaused, a started warmup,
+a weekday between 09:00 and 16:00, and cap left for the day. With the switch off
+`cli send` returns `disabled` and writes nothing at all, so the rehearsal ends
+in your outbox directory only if you stop before this step. Approving one smoke
+proof and then unpausing is safe on its own terms: the loop dispatches approved
+sends and nothing else is approved.
+
+Four things about the target are worth knowing before you pick one:
+
+- **It cannot be Danish, or ours.** `allowed_countries` is `US`, and the loader
+  refuses to start if `DK` is ever added, so there is no way to rehearse against
+  our own sites. Pick a US product.
+- **Unknown counts as blocked.** A domain whose country cannot be established
+  stops at the gate, which is the gate working. `example.com` does exactly this.
+- **The generator has to find something.** No proof, no email (§3.1 rule 1). A
+  clean site ends the rehearsal at `no_proof` and that is a pass, not a failure:
+  it is the rule that stops probe emailing people about nothing.
+- **A dropped lead stays dropped.** `drop_reason` is permanent and never
+  overwritten. A second rehearsal wants a different product.
+
+Afterwards, release your own address:
+
+```bash
+pnpm --filter @probe/worker cli erase you@example.com --yes
+```
+
+Without that, contact-once refuses the next rehearsal to the same inbox, which
+is `sends_email_hash_uniq` doing its job on you rather than on a stranger.
 
 ---
 

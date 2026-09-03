@@ -175,7 +175,7 @@ describe('assertSendReady', () => {
 describe('the Day3 base url', () => {
   it('defaults to production and strips a trailing slash', () => {
     resetEnvCache();
-    expect(loadEnv().DAY3_API_BASE_URL).toBe('https://day3.app');
+    expect(loadEnv().DAY3_API_BASE_URL).toBe('https://go.day3.app');
 
     process.env.DAY3_API_BASE_URL = 'https://staging.day3.app/';
     resetEnvCache();

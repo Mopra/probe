@@ -59,6 +59,13 @@ export async function getLead(id: string): Promise<LeadRow | null> {
   return first<LeadRow>(await sql`select * from leads where id = ${id}`);
 }
 
+/** leads_domain_uniq means a domain identifies a lead. `cli smoke` uses this to
+ *  pick up the row a second run could not insert. */
+export async function getLeadByDomain(domain: string): Promise<LeadRow | null> {
+  const sql = getSql();
+  return first<LeadRow>(await sql`select * from leads where domain = ${domain}`);
+}
+
 export async function listLeadsByStatus(
   status: LeadStatus,
   limit = 200,

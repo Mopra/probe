@@ -29,7 +29,9 @@ export interface Env {
  */
 const REQUIRED = ['SUPABASE_DB_URL', 'PROBE_HASH_PEPPER', 'PROBE_HMAC_SECRET'] as const;
 
-const DEFAULT_DAY3_BASE_URL = 'https://day3.app';
+// The Day3 API lives on go.day3.app. The apex serves the marketing site and
+// answers 404 on /api/v1/emails, which is a silent send failure on every row.
+const DEFAULT_DAY3_BASE_URL = 'https://go.day3.app';
 
 let cached: Env | null = null;
 

@@ -45,6 +45,7 @@ export {
 export {
   insertLead,
   getLead,
+  getLeadByDomain,
   listLeadsByStatus,
   setLeadJurisdiction,
   setLeadStatus,

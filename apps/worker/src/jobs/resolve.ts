@@ -23,6 +23,7 @@ import {
   bumpCounter,
   dropLead,
   getContactForLead,
+  getLead,
   hasLiveSend,
   insertContact,
   isSuppressed,
@@ -62,6 +63,11 @@ interface Context {
   allowedCountries: string[];
   pepper: string;
   summary: ResolveSummary;
+  /** `cli smoke` only. Stands in for step 4, the cascade, and nothing else:
+   *  the operator has named the recipient, so there is no address to discover.
+   *  Every other step still runs, suppression and contact-once included, so a
+   *  smoke lead reaches the queue by the same route as a swept one. */
+  contactOverride?: { email: string; first_name: string | null };
 }
 
 async function siteText(lead: LeadRow): Promise<string> {
@@ -169,11 +175,20 @@ async function processLead(lead: LeadRow, ctx: Context): Promise<void> {
     return;
   }
 
-  // 4. The cascade.
-  const handle = await hnHandle();
-  const hit = await resolveContact(lead, {
-    submitterProfileUrl: handle ? profileUrl(handle) : null,
-  });
+  // 4. The cascade, or the operator's own address when this is a smoke test.
+  const hit = ctx.contactOverride
+    ? {
+        email: ctx.contactOverride.email,
+        first_name: ctx.contactOverride.first_name,
+        method: 'manual' as const,
+        confidence: 100,
+      }
+    : await (async () => {
+        const handle = await hnHandle();
+        return resolveContact(lead, {
+          submitterProfileUrl: handle ? profileUrl(handle) : null,
+        });
+      })();
   if (!hit) {
     await dropLead(lead.id, 'no_contact');
     ctx.summary.no_contact += 1;
@@ -315,4 +330,56 @@ export async function runResolve(): Promise<ResolveSummary> {
 
   log.info('resolve complete', { ...summary, failed });
   return summary;
+}
+
+/**
+ * One lead through the same processLead as the morning run, with the contact
+ * cascade replaced by an address the operator typed. `cli smoke` uses this to
+ * put a chosen product in front of the real pipeline.
+ *
+ * Deliberately not a shortcut: jurisdiction still gates, matching still routes,
+ * suppression is still checked on both sides of the contact, and contact-once
+ * still applies. The only thing that does not run is the address discovery the
+ * operator has just done by hand.
+ */
+export async function resolveOneLead(
+  leadId: string,
+  contact: { email: string; first_name: string | null },
+): Promise<{ lead: LeadRow; summary: ResolveSummary }> {
+  const config = loadConfig();
+  const env = loadEnv();
+
+  const lead = await getLead(leadId);
+  if (!lead) throw new Error(`no lead with id ${leadId}`);
+
+  const summary: ResolveSummary = {
+    considered: 1,
+    jurisdiction_blocked: 0,
+    no_match: 0,
+    matched: 0,
+    suppressed: 0,
+    contacted_other_campaign: 0,
+    no_contact: 0,
+    resolved: 0,
+  };
+
+  const campaigns = await listCampaigns();
+  await processLead(lead, {
+    campaigns,
+    candidates: campaigns.map((c) => ({
+      slug: c.slug,
+      excludeTags: c.exclude_tags,
+      excludeKeywords: c.exclude_keywords,
+    })),
+    allowedCountries: config.global.allowed_countries,
+    pepper: env.PROBE_HASH_PEPPER,
+    summary,
+    contactOverride: contact,
+  });
+
+  clearPageCache();
+  clearMxCache();
+
+  const after = await getLead(leadId);
+  return { lead: after ?? lead, summary };
 }
