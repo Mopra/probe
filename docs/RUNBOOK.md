@@ -477,7 +477,20 @@ in your outbox directory only if you stop before this step. Approving one smoke
 proof and then unpausing is safe on its own terms: the loop dispatches approved
 sends and nothing else is approved.
 
-Four things about the target are worth knowing before you pick one:
+Finding a target that survives the gate is the fiddly part, so check before you
+commit to one. This writes nothing and creates no lead:
+
+```bash
+pnpm --filter @probe/worker cli smoke https://some-product.com --check
+```
+
+Most products come back `unknown`, which is blocked. Measured on a sample of
+launch-shaped sites, roughly one in five passes: RDAP usually has no country,
+and a site that mentions two countries in its own text is read as "we do not
+know" rather than as either of them. `neon.tech`, `resend.com` and `axiom.co`
+passed when this was written, and they make honest rehearsal targets.
+
+Five things about the target are worth knowing before you pick one:
 
 - **It cannot be Danish, or ours.** `allowed_countries` is `US`, and the loader
   refuses to start if `DK` is ever added, so there is no way to rehearse against
@@ -488,7 +501,12 @@ Four things about the target are worth knowing before you pick one:
   clean site ends the rehearsal at `no_proof` and that is a pass, not a failure:
   it is the rule that stops probe emailing people about nothing.
 - **A dropped lead stays dropped.** `drop_reason` is permanent and never
-  overwritten. A second rehearsal wants a different product.
+  overwritten. A second rehearsal wants a different product, and it is why
+  `--check` exists: hunting for a target with the real command burns a domain
+  per attempt, including domains that might launch something worth writing
+  about later.
+- **Our own sites cannot be used.** `optipeople.com` reads Denmark off its own
+  imprint and stops there, which is the gate working.
 
 Afterwards, release your own address:
 

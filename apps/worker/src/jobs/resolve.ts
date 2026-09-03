@@ -14,6 +14,7 @@ import {
   hashEmail,
   isAllowedJurisdiction,
   matchLead,
+  normalizeDomain,
   normalizeEmail,
   resolveJurisdiction,
   type JurisdictionGuess,
@@ -382,4 +383,51 @@ export async function resolveOneLead(
 
   const after = await getLead(leadId);
   return { lead: after ?? lead, summary };
+}
+
+/**
+ * The jurisdiction gate for a url, with no database and no side effects.
+ *
+ * `cli smoke --check` uses this to answer "would this target get through"
+ * before a lead exists. Hunting for a rehearsal target by running the real
+ * command is expensive in a way that is not obvious: a blocked lead is dropped,
+ * drop_reason is permanent (§8.2), and a domain burned that way is unreachable
+ * forever even if it later launches something worth writing about.
+ *
+ * Same guesses in the same order as step 1 of processLead, so an answer here is
+ * the answer there.
+ */
+export async function checkJurisdiction(url: string): Promise<{
+  domain: string;
+  country: string | null;
+  source: string;
+  detail: string | null;
+  allowed: boolean;
+}> {
+  const config = loadConfig();
+  const domain = normalizeDomain(url);
+  if (!domain) throw new Error(`${url} has no usable domain`);
+
+  // guessJurisdiction reads five fields and never writes. A lead that does not
+  // exist yet has no id and no HN submitter, which is what the nulls say.
+  const lead = {
+    id: '',
+    source_id: 'manual',
+    external_id: '',
+    name: domain,
+    url,
+    domain,
+  } as LeadRow;
+
+  clearPageCache();
+  const { guess, detail } = await guessJurisdiction(lead, async () => null);
+  clearPageCache();
+
+  return {
+    domain,
+    country: guess.country,
+    source: guess.source,
+    detail,
+    allowed: isAllowedJurisdiction(guess.country, config.global.allowed_countries),
+  };
 }

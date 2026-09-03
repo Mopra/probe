@@ -38,18 +38,21 @@ interface Flags {
   to?: string;
   /** smoke only: the first name the copy greets. */
   name?: string;
+  /** smoke only: run the jurisdiction gate and stop, writing nothing. */
+  check: boolean;
   /** Bare arguments, in order: `warmup exit1 2026-09-08` -> ['exit1', '...']. */
   positional: string[];
 }
 
 function parseFlags(argv: string[]): Flags {
-  const flags: Flags = { fromDb: false, yes: false, positional: [] };
+  const flags: Flags = { fromDb: false, yes: false, check: false, positional: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--from-db') flags.fromDb = true;
     else if (arg === '--yes' || arg === '-y') flags.yes = true;
     else if (arg === '--out') flags.out = argv[++i];
     else if (arg === '--limit') flags.limit = Number(argv[++i]);
+    else if (arg === '--check') flags.check = true;
     else if (arg === '--to') flags.to = argv[++i];
     else if (arg === '--name') flags.name = argv[++i];
     else if (arg.startsWith('--out=')) flags.out = arg.slice('--out='.length);
@@ -88,6 +91,7 @@ function usage(): void {
   console.log('  --limit <n>      dry-run and health: cap the rows read');
   console.log('  --to <email>     smoke only: who the test email is addressed to');
   console.log('  --name <first>   smoke only: the first name the copy greets');
+  console.log('  --check          smoke only: run the jurisdiction gate and stop, no writes');
   console.log('  --yes            erase and stuck: actually do it, rather than showing what would happen');
 }
 
@@ -477,11 +481,12 @@ async function main(): Promise<number> {
       // gate and this command does not have hands.
       const { normalizeDomain, normalizeEmail, normalizeUrl } = await import('@probe/core');
       const { getLeadByDomain, insertLead, upsertSource } = await import('@probe/db');
-      const { resolveOneLead } = await import('./jobs/resolve');
+      const { checkJurisdiction, resolveOneLead } = await import('./jobs/resolve');
 
       const rawUrl = flags.positional[0];
-      if (!rawUrl || !flags.to) {
+      if (!rawUrl || (!flags.to && !flags.check)) {
         console.error('usage: cli smoke <url> --to <email> [--name <first>]');
+        console.error('       cli smoke <url> --check      the gate only, no lead, no writes');
         return 2;
       }
       const url = normalizeUrl(rawUrl);
@@ -489,6 +494,28 @@ async function main(): Promise<number> {
       if (!url || !domain) {
         console.error(`"${rawUrl}" is not a usable product url`);
         return 1;
+      }
+
+      // --check answers "would this target survive step 1" without creating
+      // anything. Worth having as its own flag: a blocked lead is dropped,
+      // drop_reason is permanent, and hunting for a rehearsal target by running
+      // the real command burns a domain per attempt.
+      if (flags.check) {
+        const j = await checkJurisdiction(url);
+        console.log(`domain   ${j.domain}`);
+        console.log(`country  ${j.country ?? 'unknown'} (${j.source}${j.detail ? `, ${j.detail}` : ''})`);
+        console.log(j.allowed ? 'PASSES the jurisdiction gate' : 'BLOCKED at the jurisdiction gate');
+        if (!j.allowed && j.country === null) {
+          console.log('');
+          console.log('Unknown is blocked, never given the benefit of the doubt (§9.1). A US');
+          console.log('product passes when it says so somewhere probe can read it: a country');
+          console.log('in RDAP, or a street address on the site, /contact or /legal.');
+        }
+        return j.allowed ? 0 : 1;
+      }
+      if (!flags.to) {
+        console.error('usage: cli smoke <url> --to <email> [--name <first>]');
+        return 2;
       }
       const to = normalizeEmail(flags.to);
       if (!to) {
