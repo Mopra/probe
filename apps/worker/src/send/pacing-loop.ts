@@ -137,7 +137,7 @@ export async function sendIteration(args: IterationArgs): Promise<IterationOutco
   }
 }
 
-interface DispatchArgs {
+export interface DispatchArgs {
   send: SendRow;
   campaign: CampaignRow;
   cap: number;
@@ -151,7 +151,7 @@ interface DispatchArgs {
  * queue. Every exit either resolves the row (sent / failed / cancelled) or
  * throws, and the caller releases it on a throw.
  */
-async function dispatchClaimed(args: DispatchArgs): Promise<IterationOutcome> {
+export async function dispatchClaimed(args: DispatchArgs): Promise<IterationOutcome> {
   const { send, campaign, cap, sentToday, cfg } = args;
 
   // Gate 6. Suppression, immediately before dispatch and not a moment earlier.

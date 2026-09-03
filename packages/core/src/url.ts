@@ -127,3 +127,73 @@ export function isHttps(input: string): boolean {
     return false;
   }
 }
+
+/**
+ * Hosts that are never a lead: somebody's account on a platform, a repository,
+ * a post, a hosted demo. The product may be real, but the domain belongs to
+ * GitHub or Substack or Vercel, and the address behind it is theirs, not the
+ * founder's.
+ *
+ * Nobody wants a cold email about a finding on github.com, and the person who
+ * would receive it cannot act on it. Show HN links to these constantly.
+ *
+ * Two shapes, because the junk comes in two shapes: an exact domain, and a
+ * parent whose every subdomain is somebody's project page.
+ */
+export const PLATFORM_DOMAINS: readonly string[] = [
+  // Code hosting and package registries
+  'github.com', 'gitlab.com', 'bitbucket.org', 'sourceforge.net', 'codeberg.org',
+  'npmjs.com', 'pypi.org', 'crates.io', 'rubygems.org', 'packagist.org',
+  'huggingface.co', 'kaggle.com', 'colab.research.google.com',
+  // Writing and social
+  'substack.com', 'medium.com', 'dev.to', 'hashnode.com', 'ghost.io',
+  'wordpress.com', 'blogspot.com', 'tumblr.com', 'wixsite.com', 'squarespace.com',
+  'twitter.com', 'x.com', 'reddit.com', 'news.ycombinator.com', 'ycombinator.com',
+  'linkedin.com', 'facebook.com', 'instagram.com', 'threads.net', 'bsky.app',
+  'mastodon.social', 'youtube.com', 'youtu.be', 'tiktok.com', 'discord.com',
+  'discord.gg', 'slack.com', 'telegram.org', 't.me',
+  // Docs, forms, files, boards
+  'docs.google.com', 'drive.google.com', 'forms.gle', 'notion.so', 'notion.site',
+  'airtable.com', 'typeform.com', 'figma.com', 'canva.com', 'loom.com',
+  'dropbox.com', 'imgur.com', 'gist.github.com',
+  // App stores and marketplaces
+  'apps.apple.com', 'itunes.apple.com', 'play.google.com', 'chromewebstore.google.com',
+  'chrome.google.com', 'addons.mozilla.org', 'marketplace.visualstudio.com',
+  'producthunt.com', 'gumroad.com', 'itch.io', 'etsy.com', 'amazon.com',
+  // Fundraising and community
+  'kickstarter.com', 'indiegogo.com', 'patreon.com', 'buymeacoffee.com',
+  'ko-fi.com', 'opencollective.com', 'gofundme.com',
+];
+
+/**
+ * Parents whose subdomains are user content. The apex is on the list above
+ * where it is also junk; this is about `anyone.github.io`.
+ */
+export const PLATFORM_PARENTS: readonly string[] = [
+  'github.io', 'gitlab.io', 'pages.dev', 'workers.dev', 'vercel.app', 'netlify.app',
+  'netlify.com', 'herokuapp.com', 'firebaseapp.com', 'web.app', 'appspot.com',
+  'azurewebsites.net', 'cloudfront.net', 'amazonaws.com', 'surge.sh', 'glitch.me',
+  'repl.co', 'replit.app', 'replit.dev', 'streamlit.app', 'pyscriptapps.com',
+  'onrender.com', 'fly.dev', 'railway.app', 'deno.dev', 'val.run',
+  'notion.site', 'webflow.io', 'framer.website', 'carrd.co', 'bubbleapps.io',
+  'softr.app', 'glideapp.io', 'substack.com', 'wordpress.com', 'blogspot.com',
+  'wixsite.com', 'weebly.com', 'godaddysites.com', 'myshopify.com', 'square.site',
+  'itch.io', 'trycloudflare.com', 'ngrok.io', 'ngrok-free.app', 'loca.lt',
+];
+
+/**
+ * True when a domain is a platform rather than a product.
+ *
+ * Takes the output of normalizeDomain: already lower case, already stripped of
+ * a leading www. Matches the domain itself, and any subdomain of a parent, so
+ * `doruksega.github.io` is caught by `github.io` while `github.io` itself is
+ * caught directly.
+ */
+export function isPlatformDomain(domain: string | null): boolean {
+  if (typeof domain !== 'string') return false;
+  const d = domain.trim().toLowerCase().replace(/\.$/, '');
+  if (d.length === 0) return false;
+  if (PLATFORM_DOMAINS.includes(d)) return true;
+  if (PLATFORM_PARENTS.includes(d)) return true;
+  return PLATFORM_PARENTS.some((parent) => d.endsWith(`.${parent}`));
+}

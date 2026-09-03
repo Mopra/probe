@@ -9,7 +9,7 @@
 // contacted, is an asset in its own right.
 
 import { logger } from '@probe/config';
-import { normalizeDomain, normalizeUrl } from '@probe/core';
+import { isPlatformDomain, normalizeDomain, normalizeUrl } from '@probe/core';
 import { insertLead, markSweepError, markSweepOk, upsertSource } from '@probe/db';
 import { SOURCES } from '../sources';
 import type { RawLead, SweepSummary } from '../types';
@@ -35,6 +35,22 @@ async function storeLeads(sourceId: string, raw: RawLead[]): Promise<SourceOutco
       // returning junk is visible rather than quietly thinner.
       outcome.unusable += 1;
       log.debug('lead has no usable domain', { source: sourceId, external_id: lead.external_id, url: lead.url });
+      continue;
+    }
+
+    // A repository, a profile, a hosted demo. The product behind the link may
+    // be real, but the domain is GitHub's or Vercel's, so the contact cascade
+    // would find their address and the generator would report on their
+    // infrastructure. Dropped here rather than later: there is no version of
+    // this lead worth resolving, and the jurisdiction gate used to hide the
+    // problem by blocking these as unknown.
+    if (isPlatformDomain(domain)) {
+      outcome.unusable += 1;
+      log.debug('lead is a platform domain, not a product', {
+        source: sourceId,
+        external_id: lead.external_id,
+        domain,
+      });
       continue;
     }
 

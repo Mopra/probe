@@ -79,6 +79,24 @@ export async function listLeadsByStatus(
   `);
 }
 
+/**
+ * Every lead not already dropped, whatever stage it reached.
+ *
+ * The platform denylist lives in @probe/core as code, so the filtering cannot
+ * happen in SQL. This hands the caller the candidates to test in JavaScript,
+ * which is why it is deliberately narrow: `cli drop-platforms` cleaning up
+ * leads swept before the denylist existed, and nothing else.
+ */
+export async function listLiveLeads(limit = 2000): Promise<LeadRow[]> {
+  const sql = getSql();
+  return rows<LeadRow>(await sql`
+    select * from leads
+     where status <> 'dropped'
+     order by discovered_at
+     limit ${clampLimit(limit, 2000, 10000)}
+  `);
+}
+
 export async function setLeadJurisdiction(
   id: string,
   j: { country: string | null; source: string | null; detail?: string | null },

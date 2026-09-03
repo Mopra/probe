@@ -8,6 +8,7 @@ export const SEVERITY_MAILABLE = 1;
 
 /** Why a lead died before a send. Written once, never overwritten (§8.2). */
 export type DropReason =
+  | 'platform_domain'
   | 'jurisdiction_blocked'
   | 'no_match'
   | 'suppressed'
@@ -18,6 +19,7 @@ export type DropReason =
 
 /** Stable order, used for the /health breakdown table. */
 export const DROP_REASONS: DropReason[] = [
+  'platform_domain',
   'jurisdiction_blocked',
   'no_match',
   'suppressed',
@@ -29,7 +31,8 @@ export const DROP_REASONS: DropReason[] = [
 
 /** Labels taken verbatim from the §8.2 drop accounting table. */
 export const DROP_REASON_LABELS: Record<DropReason, string> = {
-  jurisdiction_blocked: 'Country not on the allowlist, or unknown',
+  platform_domain: 'A repo, profile or hosted demo, not a product',
+  jurisdiction_blocked: 'Country is on the blocklist',
   no_match: 'Fits no campaign',
   suppressed: 'Address already opted out',
   contacted_other_campaign: 'Address already received a probe email',

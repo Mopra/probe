@@ -131,7 +131,9 @@ pnpm --filter @probe/worker cli stuck            # sends left mid-dispatch by a 
 pnpm --filter @probe/worker cli hash  a@b.com    # peppered hash, for a GDPR request
 pnpm --filter @probe/worker cli erase a@b.com    # GDPR erasure by address or hash
 pnpm --filter @probe/worker cli smoke https://their.site --to you@example.com
-                                                 # one chosen product, real pipeline, mail to you
+                                                 # the whole pipeline end to end, mail to you
+pnpm --filter @probe/worker cli drop-platforms   # repos and demos that are not products
+pnpm --filter @probe/worker cli requalify        # after changing the jurisdiction rule
 ```
 
 ## Daily shape
@@ -141,6 +143,7 @@ pnpm --filter @probe/worker cli smoke https://their.site --to you@example.com
 | 06:30 | sweep the launch directories |
 | 07:00 | resolve jurisdiction, match a campaign, resolve a contact |
 | 07:30 | call the generators |
+| every 10 min, 06:00 to 23:00 | poll generator work that is still running |
 | 09:00 to 16:00, weekdays | the send daemon, one pacing loop per sending subdomain |
 
 Between 07:30 and whenever Morten opens `/queue`, nothing moves. That is by

@@ -123,9 +123,15 @@ export async function main(): Promise<void> {
   every('30 7 * * *', 'generate', runGenerate);
   // The generator answers 202 and works for 60 to 90 minutes (§6), so one pass
   // at 07:30 would leave every pending proof unpolled until tomorrow. Re-poll
-  // through the morning; duePendingProofs and next_poll_at decide what is
-  // actually due, so an extra tick costs one query.
-  every('*/10 8-11 * * *', 'generate-repoll', runGenerate);
+  // through the day; duePendingProofs and next_poll_at decide what is actually
+  // due, so an extra tick costs one query.
+  //
+  // The window used to be 8-11, matched to a 07:30 start. That silently
+  // discarded any work started outside it: the two hour budget keeps running
+  // whether or not anything is polling, so a generate run at 13:00 expired
+  // unattended and every proof in it was marked failed the next morning. The
+  // budget is a limit on the generator, not on the operator's working hours.
+  every('*/10 6-23 * * *', 'generate-repoll', runGenerate);
   every('0 * * * *', 'autopause', runAutoPause);
 
   const daemon: SendDaemonHandle = await runSendDaemon();

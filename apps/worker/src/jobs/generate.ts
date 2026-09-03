@@ -521,3 +521,73 @@ async function processItem(
     postalAddress: opts.postalAddress,
   });
 }
+
+/**
+ * One lead, generated to a conclusion, blocking until there is one.
+ *
+ * `cli smoke` uses this. runGenerate is built for a cron: it starts work,
+ * records next_poll_at and returns, leaving the polling to the next tick. Run
+ * by hand outside the re-poll window that is a trap, because the elapsed-time
+ * budget keeps running while nothing polls, so the work expires unattended.
+ * Here the caller is a person watching a terminal, so the poll loop lives in
+ * the process instead of in cron.
+ *
+ * Identical work either way: the same processItem, the same applyOutcome, the
+ * same budget. Only the schedule differs.
+ */
+export async function generateForLead(
+  leadId: string,
+  onProgress?: (message: string) => void,
+): Promise<OutcomeEffect> {
+  const cfg = loadConfig();
+  const env = loadEnv();
+  const say = onProgress ?? ((): void => {});
+
+  const lead = await getLead(leadId);
+  if (!lead) throw new Error(`no lead with id ${leadId}`);
+  if (!lead.campaign_id) throw new Error(`lead ${lead.domain} has no campaign`);
+  const campaign = await getCampaign(lead.campaign_id);
+  if (!campaign) throw new Error(`lead ${lead.domain} points at a campaign that does not exist`);
+  const contact = await getContactForLead(lead.id);
+  if (!contact) throw new Error(`lead ${lead.domain} has no contact row`);
+
+  if (await isSuppressed(contact.email_hash)) {
+    await dropLead(lead.id, 'suppressed');
+    throw new Error('that address is suppressed, permanently and by design');
+  }
+
+  const proof =
+    (await getProofForLead(lead.id)) ??
+    (await createProof({ lead_id: lead.id, campaign_id: campaign.id }));
+  await setLeadStatus(lead.id, 'generating');
+
+  const started = Date.now();
+  for (;;) {
+    const current = (await getProofForLead(lead.id)) ?? proof;
+    const effect = await processItem(
+      { proof: current, lead, campaign, contact, fresh: false },
+      {
+        secret: env.PROBE_HMAC_SECRET,
+        timeoutMs: cfg.global.generator_timeout_ms,
+        minSeverity: cfg.global.generator_min_severity,
+        budgetMs: cfg.global.generator_budget_ms,
+        maxAttempts: cfg.global.generator_max_attempts,
+        baseUrl: baseUrl(),
+        postalAddress: postalAddress(),
+        now: new Date(),
+      },
+    );
+
+    if (effect.effect !== 'pending' && effect.effect !== 'retry') return effect;
+
+    // next_poll_at is the generator's own retry_after, clamped to 60s at the
+    // low end, so this is its pace and not ours.
+    const waitMs = Math.max(5_000, effect.nextPollAt.getTime() - Date.now());
+    const elapsedMin = Math.round((Date.now() - started) / 60_000);
+    say(
+      `still working, ${elapsedMin} min elapsed, next check in ${Math.round(waitMs / 1000)}s` +
+        ` (the exit1 probe takes 60 to 90 minutes)`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+}

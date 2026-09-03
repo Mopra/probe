@@ -26,6 +26,7 @@ const COMMANDS = [
   'stuck',
   'smoke',
   'requalify',
+  'drop-platforms',
 ] as const;
 
 type Command = (typeof COMMANDS)[number];
@@ -87,6 +88,7 @@ function usage(): void {
   console.log('             `smoke https://their.site --to you@example.com`');
   console.log('  requalify  return leads the OLD jurisdiction rule dropped, after changing it');
   console.log('             (§9.1). Shows what would come back; --yes does it');
+  console.log('  drop-platforms  drop repos, profiles and hosted demos that are not products');
   console.log('');
   console.log('flags:');
   console.log('  --from-db        dry-run only: render every ready proof instead of fixtures');
@@ -473,6 +475,44 @@ async function main(): Promise<number> {
       return 0;
     }
 
+    case 'drop-platforms': {
+      // The denylist applied to leads swept before it existed. Sweep and
+      // resolve both check it now, but a lead already past resolve is out of
+      // their reach: github.com had a contact and a running generator call by
+      // the time the list was written.
+      const { isPlatformDomain } = await import('@probe/core');
+      const { dropLead, getProofForLead, listLiveLeads, markProofFailed } = await import(
+        '@probe/db'
+      );
+
+      const junk = (await listLiveLeads()).filter((l) => isPlatformDomain(l.domain));
+      console.log(`platform leads still live  ${junk.length}`);
+      for (const lead of junk) console.log(`  ${lead.domain.padEnd(34)} ${lead.status}`);
+
+      if (junk.length === 0) return 0;
+      if (!flags.yes) {
+        console.log('');
+        console.log('These are repos, profiles and hosted demos, not products. Dropping them');
+        console.log('also fails any proof still generating for them, so no generator call and');
+        console.log('no email is spent on somebody else\'s domain. Pass --yes to do it.');
+        return 1;
+      }
+
+      for (const lead of junk) {
+        // The proof first: a pending proof outlives its lead's status, because
+        // duePendingProofs reads the proofs table and never looks at the lead.
+        const proof = await getProofForLead(lead.id);
+        if (proof && (proof.status === 'pending' || proof.status === 'ready')) {
+          await markProofFailed(proof.id, 'platform domain, not a product');
+        }
+        await dropLead(lead.id, 'platform_domain');
+        console.log(`  dropped ${lead.domain}`);
+      }
+      console.log('');
+      console.log(`${junk.length} dropped.`);
+      return 0;
+    }
+
     case 'requalify': {
       // §9.1 changed under leads that were already dropped for it. Without
       // this they stay dead forever: drop_reason is permanent, and resolve
@@ -527,9 +567,27 @@ async function main(): Promise<number> {
       // gap all still apply, because a rehearsal that skips the gates rehearses
       // nothing. That is also why this stops at the queue: approval is a human
       // gate and this command does not have hands.
-      const { normalizeDomain, normalizeEmail, normalizeUrl } = await import('@probe/core');
-      const { getLeadByDomain, insertLead, upsertSource } = await import('@probe/db');
+      const { newToken, normalizeDomain, normalizeEmail, normalizeUrl } = await import(
+        '@probe/core'
+      );
+      const {
+        ContactedAlreadyError,
+        claimSend,
+        createSend,
+        getCampaign,
+        getContactForLead,
+        getLeadByDomain,
+        getProofForLead,
+        insertLead,
+        setLeadStatus,
+        upsertSource,
+      } = await import('@probe/db');
+      const { loadConfig } = await import('@probe/config');
       const { checkJurisdiction, resolveOneLead } = await import('./jobs/resolve');
+      const { generateForLead } = await import('./jobs/generate');
+      const { dispatchClaimed } = await import('./send/pacing-loop');
+      const { createSender } = await import('./send/sender');
+      const { approver, sendEnabled } = await import('./send/runtime');
 
       const rawUrl = flags.positional[0];
       if (!rawUrl || (!flags.to && !flags.check)) {
@@ -630,14 +688,132 @@ async function main(): Promise<number> {
         return 1;
       }
 
-      console.log('next:');
-      console.log('  cli generate                    real generator call, 60-90 min, re-poll to finish');
-      console.log('  open /queue                     read it, then approve');
-      console.log('  cli send                        dispatches inside the window, weekdays 09:00-16:00');
+      // ---- The generator. Blocking, because a person is watching. ----------
+      console.log('generating. The exit1 probe takes 60 to 90 minutes against a');
+      console.log('real site, and this waits for it rather than leaving you to poll.');
       console.log('');
-      console.log(`afterwards: \`cli erase ${to} --yes\` releases the address, so the`);
-      console.log('next rehearsal to the same inbox is not refused by contact-once.');
-      return 0;
+      const effect = await generateForLead(after.id, (m) => console.log(`  ${m}`));
+
+      if (effect.effect !== 'ready') {
+        console.log('');
+        switch (effect.effect) {
+          case 'no_proof':
+            console.log(`no finding on ${domain}, so there is no email. That is rule 1:`);
+            console.log('probe never writes a template when the generator has nothing to say.');
+            console.log('Try a product with a weaker public surface.');
+            break;
+          case 'lint_failed':
+            console.log(`the copy lint refused what the generator produced: ${effect.detail}`);
+            console.log('That is a generator bug, and this is the check that catches it.');
+            break;
+          case 'budget_exhausted':
+            console.log(
+              `the generator was still working after ${Math.round(effect.elapsedMs / 60_000)} minutes`,
+            );
+            console.log('and the two hour budget ran out. Nothing was sent.');
+            break;
+          default:
+            console.log(`the generator failed: ${'error' in effect ? effect.error : effect.effect}`);
+        }
+        return 1;
+      }
+      console.log('');
+      console.log('finding ready.');
+
+      // ---- Approve and send, immediately -----------------------------------
+      //
+      // The pacing loop's job is to spread strangers' mail across a window at a
+      // reputation-safe rate. None of that applies to one message the operator
+      // addressed to themselves and is standing there waiting for, so this
+      // schedules for now and dispatches the row itself.
+      //
+      // What it does NOT skip: PROBE_SEND_ENABLED, suppression at dispatch, the
+      // copy lint, contact-once, and the atomic claim. Those are about who may
+      // be emailed and whether the message is fit to send, and they apply to a
+      // test exactly as they apply to a stranger.
+      if (!sendEnabled()) {
+        console.log('');
+        console.log('PROBE_SEND_ENABLED is not "true", so nothing will be dispatched.');
+        console.log('The proof is ready and waiting in /queue. Set it and run this again.');
+        return 1;
+      }
+
+      const ready = await getProofForLead(after.id);
+      const contact = await getContactForLead(after.id);
+      const campaign = after.campaign_id ? await getCampaign(after.campaign_id) : null;
+      if (!ready || !contact || !campaign) {
+        console.error('the proof, contact or campaign vanished between generating and sending');
+        return 1;
+      }
+
+      let sendRow;
+      try {
+        sendRow = await createSend({
+          proof_id: ready.id,
+          campaign_id: campaign.id,
+          contact_id: contact.id,
+          email_hash: contact.email_hash,
+          // Recorded as a smoke send, so /sends never implies a human read this
+          // one in the queue and approved it. Nobody did; you typed a command.
+          approved_by: `smoke:${approver()}`,
+          scheduled_for: new Date(),
+          unsub_token: newToken(),
+          click_token: newToken(),
+        });
+      } catch (err) {
+        if (err instanceof ContactedAlreadyError) {
+          console.log('');
+          console.log(`${to} already carries a live send, so contact-once refuses this one.`);
+          console.log(`\`cli erase ${to} --yes\` releases the address.`);
+          return 1;
+        }
+        throw err;
+      }
+      await setLeadStatus(after.id, 'approved', campaign.id);
+
+      const claimed = await claimSend(sendRow.id);
+      if (!claimed) {
+        console.error('another process claimed this send first');
+        return 1;
+      }
+
+      console.log('sending...');
+      const outcome = await dispatchClaimed({
+        send: claimed,
+        campaign,
+        cap: Number.MAX_SAFE_INTEGER,
+        sentToday: 0,
+        cfg: loadConfig(),
+        sender: createSender(),
+      });
+
+      console.log('');
+      switch (outcome.kind) {
+        case 'sent':
+          console.log(`SENT to ${to}`);
+          console.log(`  subject      ${ready?.subject ?? '(unreadable)'}`);
+          console.log(`  provider id  ${outcome.providerEmailId}`);
+          console.log(`  send id      ${outcome.sendId}`);
+          console.log('');
+          console.log('Check the inbox. Read both parts, click every link, and click the');
+          console.log('unsubscribe: that is the one link that must never be broken.');
+          console.log('');
+          console.log(`Then \`cli erase ${to} --yes\` to release the address, or the next`);
+          console.log('test to this inbox is refused by contact-once.');
+          return 0;
+        case 'lint_failed':
+          console.log('the copy lint refused it at dispatch, so nothing was sent.');
+          return 1;
+        case 'cancelled':
+          console.log(`cancelled: ${outcome.reason}`);
+          return 1;
+        case 'failed':
+          console.log(`the provider refused it: ${outcome.error}`);
+          return 1;
+        default:
+          console.log(`unexpected dispatch outcome: ${outcome.kind}`);
+          return 1;
+      }
     }
   }
 }

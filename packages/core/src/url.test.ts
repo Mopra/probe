@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isHttps, normalizeDomain, normalizeUrl } from './url';
+import { isHttps, isPlatformDomain, normalizeDomain, normalizeUrl } from './url';
 
 describe('normalizeDomain', () => {
   it('lowercases the host and drops www', () => {
@@ -107,5 +107,41 @@ describe('isHttps', () => {
     expect(isHttps('meterbase.dev')).toBe(false);
     expect(isHttps('https://localhost:3000')).toBe(false);
     expect(isHttps('')).toBe(false);
+  });
+});
+
+describe('isPlatformDomain', () => {
+  it('catches the platforms Show HN links to constantly', () => {
+    expect(isPlatformDomain('github.com')).toBe(true);
+    expect(isPlatformDomain('twitter.com')).toBe(true);
+    expect(isPlatformDomain('medium.com')).toBe(true);
+    expect(isPlatformDomain('apps.apple.com')).toBe(true);
+    expect(isPlatformDomain('producthunt.com')).toBe(true);
+  });
+
+  it('catches somebody\'s project page under a platform parent', () => {
+    expect(isPlatformDomain('doruksega.github.io')).toBe(true);
+    expect(isPlatformDomain('hengmhs.pyscriptapps.com')).toBe(true);
+    expect(isPlatformDomain('wasm-gguf.netlify.app')).toBe(true);
+    expect(isPlatformDomain('eito.substack.com')).toBe(true);
+    // The parent itself, not only its children.
+    expect(isPlatformDomain('github.io')).toBe(true);
+  });
+
+  it('leaves real products alone', () => {
+    expect(isPlatformDomain('meterbase.dev')).toBe(false);
+    expect(isPlatformDomain('noisevanish.com')).toBe(false);
+    expect(isPlatformDomain('exit1.dev')).toBe(false);
+    // Substring, not a suffix on a label boundary: notgithub.com is a product.
+    expect(isPlatformDomain('notgithub.com')).toBe(false);
+    expect(isPlatformDomain('mygithub.iofoo.com')).toBe(false);
+  });
+
+  it('handles junk input without throwing', () => {
+    expect(isPlatformDomain(null)).toBe(false);
+    expect(isPlatformDomain('')).toBe(false);
+    expect(isPlatformDomain('   ')).toBe(false);
+    expect(isPlatformDomain('GITHUB.COM')).toBe(true);
+    expect(isPlatformDomain('github.com.')).toBe(true);
   });
 });

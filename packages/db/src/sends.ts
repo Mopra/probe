@@ -163,6 +163,27 @@ export async function claimNextDueSend(
 }
 
 /**
+ * The same atomic claim, for one named row. `cli smoke` dispatches a specific
+ * send immediately rather than waiting for the queue to reach it, and it must
+ * claim that row the same way the daemon does: two processes racing the same
+ * row is the failure `sends_email_hash_uniq` cannot catch, because the row
+ * already exists and there is no second insert to reject.
+ *
+ * Null means the row was not 'queued' when this ran, so somebody else has it.
+ */
+export async function claimSend(id: string): Promise<SendRow | null> {
+  const sql = getSql();
+  const result = await sql`
+    update sends
+       set status = 'sending'
+     where id = ${id}::uuid
+       and status = 'queued'
+    returning *
+  `;
+  return first<SendRow>(result);
+}
+
+/**
  * Puts a claimed row back in the queue without consuming anything. Used when a
  * gate after the claim says "not this one, not now" for a reason that is not
  * the send's fault: the kill switch flipped, the campaign was paused, the cap

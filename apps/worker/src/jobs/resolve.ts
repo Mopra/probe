@@ -13,6 +13,7 @@ import {
   countryFromText,
   hashEmail,
   isBlockedJurisdiction,
+  isPlatformDomain,
   matchLead,
   normalizeDomain,
   normalizeEmail,
@@ -132,6 +133,17 @@ async function processLead(lead: LeadRow, ctx: Context): Promise<void> {
     cachedHandle = lead.source_id === 'show_hn' ? await hnAuthorForItem(lead.external_id) : null;
     return cachedHandle;
   };
+
+  // 0. A platform domain is not a product. Cheapest possible check, and it
+  //    runs before the jurisdiction lookups because there is no answer those
+  //    could give that would make github.com worth an email. Leads swept
+  //    before the denylist existed reach this and are dropped here.
+  if (isPlatformDomain(lead.domain)) {
+    await dropLead(lead.id, 'platform_domain');
+    ctx.summary.platform_domain += 1;
+    leadLog.info('platform domain, not a product', { domain: lead.domain });
+    return;
+  }
 
   // 1. Jurisdiction, before anything else is spent. Recorded either way
   //    (§8.2), then gated against the blocklist. A country we could not
@@ -262,6 +274,7 @@ export async function runResolve(): Promise<ResolveSummary> {
 
   const summary: ResolveSummary = {
     considered: 0,
+    platform_domain: 0,
     jurisdiction_blocked: 0,
     no_match: 0,
     matched: 0,
@@ -357,6 +370,7 @@ export async function resolveOneLead(
 
   const summary: ResolveSummary = {
     considered: 1,
+    platform_domain: 0,
     jurisdiction_blocked: 0,
     no_match: 0,
     matched: 0,

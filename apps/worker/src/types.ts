@@ -63,6 +63,7 @@ export interface SweepSummary {
 
 export interface ResolveSummary {
   considered: number;
+  platform_domain: number;
   jurisdiction_blocked: number;
   no_match: number;
   matched: number;

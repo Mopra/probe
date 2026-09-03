@@ -10,6 +10,7 @@ describe('constants', () => {
   it('covers every drop reason in the 8.2 table exactly once', () => {
     expect(new Set(DROP_REASONS).size).toBe(DROP_REASONS.length);
     expect(DROP_REASONS).toEqual([
+      'platform_domain',
       'jurisdiction_blocked',
       'no_match',
       'suppressed',

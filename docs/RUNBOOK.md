@@ -457,25 +457,47 @@ address you named, and that is the only thing it does that the pipeline would
 not do for itself. The cascade is the one step it stands in for, because the
 cascade would find the founder and the whole point is that this lands with you.
 
-Jurisdiction still gates, matching still routes, suppression is still checked on
-both sides of the contact, contact-once still applies, and the command stops at
-`contact_resolved`. From there you drive the same three steps the daemon drives:
+It runs the whole thing and does not come back until the email has been sent, or
+until something has stopped it and said what. There is nothing to poll, nothing
+to approve and no second command:
 
-```bash
-pnpm --filter @probe/worker cli generate    # the real generator, 60-90 min. Re-run to poll
-open /queue                                 # read it like a stranger would, then approve
-pnpm --filter @probe/worker cli send        # dispatches, inside the window
+```
+lead     <id>  some-product.com  new
+to       you@example.com
+country  US (whois)
+status   contact_resolved
+
+generating. The exit1 probe takes 60 to 90 minutes against a real
+site, and this waits for it rather than leaving you to poll.
+
+  still working, 12 min elapsed, next check in 300s
+  still working, 17 min elapsed, next check in 300s
+  ...
+
+finding ready.
+sending...
+
+SENT to you@example.com
+  subject      Your signup form accepts an unverified address
+  provider id  eml_...
 ```
 
 Then read what arrives. Both parts, every link, the unsubscribe especially.
 
-That last step needs the same five gates as any other send, because it *is* any
-other send: `PROBE_SEND_ENABLED=true`, the campaign unpaused, a started warmup,
-a weekday between 09:00 and 16:00, and cap left for the day. With the switch off
-`cli send` returns `disabled` and writes nothing at all, so the rehearsal ends
-in your outbox directory only if you stop before this step. Approving one smoke
-proof and then unpausing is safe on its own terms: the loop dispatches approved
-sends and nothing else is approved.
+The one thing it needs is `PROBE_SEND_ENABLED=true`. It says so and stops
+otherwise, leaving the proof ready in `/queue`.
+
+What it skips, and only this: the send window, the daily cap, the pause flag and
+the pacing gap. Those exist to spread strangers' mail across a day at a
+reputation-safe rate, and none of that describes one message you addressed to
+yourself and are sitting there waiting for. What it does not skip is everything
+about who may be emailed and whether the message is fit to send: the global kill
+switch, jurisdiction, suppression checked on both sides of the contact and again
+at dispatch, contact-once, the copy lint, and the atomic claim. Those apply to a
+test exactly as they apply to a stranger.
+
+Approval is recorded as `smoke:<approver>` rather than as a person, so `/sends`
+never implies somebody read this one in the queue. Nobody did.
 
 Finding a target that survives the gate is the fiddly part, so check before you
 commit to one. This writes nothing and creates no lead:
@@ -497,6 +519,9 @@ Four things about the target are worth knowing before you pick one:
   Denmark off its own imprint and stops there.
 - **Unknown now passes.** A domain whose country cannot be established is
   contactable under the blocklist, which is most of them.
+- **It cannot be a platform.** `github.com`, `anyone.github.io`, a Substack, a
+  Netlify demo: those are dropped as `platform_domain` at sweep and again at
+  resolve. The domain belongs to GitHub, not to the founder.
 - **The generator has to find something.** No proof, no email (§3.1 rule 1). A
   clean site ends the rehearsal at `no_proof` and that is a pass, not a failure:
   it is the rule that stops probe emailing people about nothing.
@@ -518,7 +543,30 @@ is `sends_email_hash_uniq` doing its job on you rather than on a stranger.
 
 ---
 
-## 6.6 Changing the jurisdiction rule
+## 6.6 Platform domains
+
+A Show HN link is as often a repository, a profile or a hosted demo as it is a
+product. `github.com`, `doruksega.github.io`, `eito.substack.com`,
+`wasm-gguf.netlify.app`: the thing behind the link may be real, but the domain
+belongs to GitHub or Substack or Netlify, so the contact cascade finds their
+address and the generator reports on their infrastructure.
+
+`PLATFORM_DOMAINS` and `PLATFORM_PARENTS` in `packages/core/src/url.ts` are the
+list. Sweep refuses to store them and resolve drops them as `platform_domain`,
+so both new and existing leads are covered. Add to the list as new ones appear;
+it is plain code and needs no migration.
+
+For leads that were already past resolve when the list changed:
+
+```bash
+pnpm --filter @probe/worker cli drop-platforms        # what is still live
+pnpm --filter @probe/worker cli drop-platforms --yes  # drop them, fail their proofs
+```
+
+It fails any proof still generating, because a pending proof outlives its lead's
+status: `duePendingProofs` reads the proofs table and never looks at the lead.
+
+## 6.7 Changing the jurisdiction rule
 
 `blocked_countries` in `probe.toml`. Adding a country takes effect on the next
 resolve and needs nothing else: leads already past the gate are unaffected,
