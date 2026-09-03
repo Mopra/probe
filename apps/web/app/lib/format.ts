@@ -78,8 +78,10 @@ export function formatRate(rate: number, digits = 3): string {
   return `${(rate * 100).toFixed(digits)}%`;
 }
 
-export function formatShare(share: number): string {
-  if (!Number.isFinite(share)) return '-';
+export function formatShare(share: number | null | undefined): string {
+  // Null is "no meaningful share", not zero: a pre-match drop reason has no
+  // place in a denominator of matched leads.
+  if (share === null || share === undefined || !Number.isFinite(share)) return '-';
   return `${(share * 100).toFixed(1)}%`;
 }
 

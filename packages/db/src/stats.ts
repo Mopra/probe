@@ -131,7 +131,9 @@ export interface HealthStats {
     bounce_rate: number;
     complaint_rate: number;
   };
-  drop_reasons: Array<{ reason: string; count: number; share_of_matched: number }>;
+  /** `share_of_matched` is null for a reason that drops a lead before it is
+   *  matched, because the matched denominator does not contain those leads. */
+  drop_reasons: Array<{ reason: string; count: number; share_of_matched: number | null }>;
   jurisdiction: {
     swept: number;
     blocked: number;
@@ -255,7 +257,14 @@ export async function healthStats(windowDays: number): Promise<HealthStats> {
     drop_reasons: dropRows.map((r) => ({
       reason: r.reason,
       count: r.count,
-      share_of_matched: share(r.count, matched),
+      // Only for reasons the denominator actually contains. jurisdiction_blocked,
+      // no_match and suppressed drop a lead before it is matched, and dividing
+      // them by the matched count printed 3050% on a morning where 61 leads
+      // were blocked at the gate and 2 were matched. The jurisdiction gate has
+      // its own line below, over swept, which is the honest denominator for it.
+      share_of_matched: (MATCHED_OR_BEYOND_DROP_REASONS as readonly string[]).includes(r.reason)
+        ? share(r.count, matched)
+        : null,
     })),
     jurisdiction: {
       swept,

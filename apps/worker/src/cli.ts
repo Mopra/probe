@@ -445,10 +445,12 @@ async function main(): Promise<number> {
       console.log('');
       console.log('drop reasons, as a share of matched leads');
       for (const d of health.drop_reasons) {
-        console.log(
-          `  ${d.reason.padEnd(26)} ${String(d.count).padStart(5)}  ` +
-            `${(d.share_of_matched * 100).toFixed(1)}%`,
-        );
+        // Null share: the reason drops the lead before matching, so the
+        // matched denominator does not contain it. The jurisdiction line
+        // below carries the right number for the one that matters.
+        const pct =
+          d.share_of_matched === null ? '' : `  ${(d.share_of_matched * 100).toFixed(1)}%`;
+        console.log(`  ${d.reason.padEnd(26)} ${String(d.count).padStart(5)}${pct}`);
       }
       console.log(
         `jurisdiction_blocked ${health.jurisdiction.blocked} of ${health.jurisdiction.swept} swept  ` +
