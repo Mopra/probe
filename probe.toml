@@ -39,7 +39,9 @@ generator_concurrency  = 3
 generator_timeout_ms   = 30000
 generator_budget_ms    = 7200000   # two hours, elapsed-time budget
 generator_max_attempts = 3
-generator_min_severity = 1         # probe mails severity 1 only
+# Lower is stronger. 1 is a defect, 0 is a clean report saying every check
+# passed, and both are mailed. 2 is pedantic and never mailed on its own.
+generator_min_severity = 1
 
 # §5.5 auto-pause thresholds (half of AWS's)
 complaint_rate_threshold = 0.0005

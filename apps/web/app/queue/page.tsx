@@ -57,7 +57,7 @@ export default async function QueuePage({
       {items.length === 0 ? (
         <Empty
           headline="Nothing to approve."
-          hint="Items land here when the generate job returns a severity 1 finding for a matched lead with a resolved contact. A generator that finds nothing drops the lead as no_proof, which is the expected majority outcome."
+          hint="Items land here when the generate job returns a finding for a matched lead with a resolved contact: a severity 1 defect, or a severity 0 clean report saying every check passed. A generator that cannot measure the site at all drops the lead as no_proof."
         />
       ) : (
         <div className="flex flex-col gap-6">
@@ -108,9 +108,16 @@ function QueueRow({
         <h2 className="text-base font-normal tracking-tight text-fg">{lead.name}</h2>
         <span className="font-mono text-[12px] text-dim">{lead.domain}</span>
         <Chip>{campaign.slug}</Chip>
-        <Chip tone={proof.severity === 1 ? 'signal' : 'warn'}>
-          severity {proof.severity ?? '?'}
-        </Chip>
+        {/* Severity 0 is the clean report: every check passed. It is a
+            different kind of email from a defect, not a weaker one, so it says
+            so rather than showing a number a reader has to decode. */}
+        {proof.severity === 0 ? (
+          <Chip tone="signal">all clear</Chip>
+        ) : (
+          <Chip tone={proof.severity === 1 ? 'signal' : 'warn'}>
+            severity {proof.severity ?? '?'}
+          </Chip>
+        )}
         {lintOk ? (
           <Chip tone="signal">lint pass</Chip>
         ) : (

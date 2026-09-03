@@ -185,8 +185,10 @@ curl -sS -w '\nHTTP %{http_code}\n' -X POST \
   --data "$BODY"
 ```
 
-**204 is the success case**: the signature verified and example.com is clean. 401
-means the secrets differ. 400 means the signature was fine and the body was not.
+**200 is the success case**: the signature verified and the generator produced
+something, either a severity 1 defect or a severity 0 clean report. 204 now means
+only that the site could not be measured at all. 401 means the secrets differ.
+400 means the signature was fine and the body was not.
 
 ### The evidence report
 
@@ -416,8 +418,8 @@ Warmup does not unpause. The curve, which has no manual override:
 Each sending subdomain is paced independently. They are separate reputations and
 one queue must never starve the other.
 
-`day3` stays paused and unstarted: its generator is still a 204 stub, so there
-is nothing for it to say.
+`day3` stays paused, unstarted and NOT routable: `day3.app/api/probe/generate`
+does not exist at all, so there is nothing for it to say (§6.9).
 
 ### Step 5. Unpause the one campaign
 
@@ -519,8 +521,9 @@ Four things about the target are worth knowing before you pick one:
   Netlify demo: those are dropped as `platform_domain` at sweep and again at
   resolve. The domain belongs to GitHub, not to the founder.
 - **The generator has to find something.** No proof, no email (§3.1 rule 1). A
-  clean site ends the rehearsal at `no_proof` and that is a pass, not a failure:
-  it is the rule that stops probe emailing people about nothing.
+  clean site now produces a severity 0 report rather than nothing, so the
+  rehearsal still ends in an email. `no_proof` is reserved for a site that could
+  not be measured at all.
 - **A dropped lead stays dropped.** `drop_reason` is permanent and never
   overwritten. A second rehearsal wants a different product, and it is why
   `--check` exists: hunting for a target with the real command burns a domain
@@ -694,7 +697,9 @@ copy or the targeting is wrong, and no amount of pacing fixes that.
 `/health` shows the outcome breakdown. Distinguish the three cases before
 touching anything:
 
-- **Lots of `no_proof`.** Working as intended. §15.4: most sites are clean or
+- **Lots of `no_proof`.** Since severity 0 exists this should be rare, and a run
+  of it now means the generator cannot reach sites rather than that sites are
+  healthy. Historically: §15.4, most sites are clean or
   merely imperfect, and this is expected to be the majority outcome. If it is
   *not* the majority, the generator is being too generous about what counts as a
   finding, which is the worse failure.
@@ -722,7 +727,7 @@ overwritten, so the first cause of death is the one you see.
 | `suppressed`               | Address already opted out                     |
 | `contacted_other_campaign` | Address already received a probe email        |
 | `no_contact`               | The cascade found nothing                     |
-| `no_proof`                 | Generator returned 204, or severity below 1   |
+| `no_proof`                 | Generator could not measure the site at all   |
 | `generator_failed`         | 3 failed attempts, 2 hours pending, or a lint failure |
 
 `contacted_other_campaign` is the one to watch. After a month, count it as a

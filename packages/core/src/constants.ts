@@ -1,8 +1,17 @@
 // Shared constants for the whole pipeline. See PLAN.md §6 and §8.2.
 
 /**
- * probe mails severity 1 only (§6). A severity 2 finding is real but pedantic,
- * and a pedantic finding reads as a pretext, which is worse than no email.
+ * The weakest severity probe will mail, where LOWER is stronger (§6).
+ *
+ * 1 is a defect. 0 is the clean report: every check passed, quoted with the
+ * numbers measured against that site minutes earlier. Both are mailed, and 0 is
+ * not a weaker 1 but a different statement, so this constant is a floor on
+ * pedantry rather than on severity.
+ *
+ * 2 is never mailed. A severity 2 finding is real but pedantic, and a pedantic
+ * finding offered as the reason for writing reads as a pretext, which is worse
+ * than no email. "Everything passed" is both truer and more useful than "your
+ * redirect chain is three hops".
  */
 export const SEVERITY_MAILABLE = 1;
 
