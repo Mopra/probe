@@ -97,7 +97,12 @@ describe('the committed probe.toml', () => {
 
     const exit1 = cfg.campaigns[0];
     expect(exit1.product).toBe('exit1.dev');
-    expect(exit1.generator_url).toBe('https://exit1.dev/api/probe/generate');
+    // The Cloud Function directly, not exit1.dev/api/probe/generate: exit1.dev
+    // is served by Vercel with no vercel.json, so the Firebase Hosting rewrites
+    // are inert. Asserted loosely on purpose -- the exact host is deployment
+    // detail, but it must stay https and reachable, which the schema enforces.
+    expect(exit1.generator_url).toMatch(/^https:\/\//);
+    expect(exit1.generator_url).toContain('probeGenerate');
     expect(exit1.from_email).toBe('morten@mail.exit1.dev');
     expect(exit1.reply_to).toBe('morten@mail.exit1.dev');
     expect(exit1.daily_cap).toBe(50);
