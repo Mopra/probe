@@ -854,6 +854,16 @@ probe no longer holds AWS credentials. These entries replace the SES sender.
 - `apps/web` gains `app/lib/cf-access.ts`: `verifyAccessJwt`, `teamCertsUrl`,
   `clearAccessKeyCache`. Edge-runtime safe (Web Crypto, no node builtins), which
   is why it lives here and not in `@probe/core`.
+- `apps/web` gains `/e/:id`, the public evidence report (§9.2.3), proxied to
+  exit1's `probeEvidence` function. The generator originally emitted
+  `https://exit1.dev/probe/<id>`, but exit1.dev is served by Vercel with no
+  vercel.json, so every Firebase Hosting rewrite in that repo is inert and the
+  URL 404s -- a pre-existing consequence of the Vercel migration, not something
+  probe changed. Serving it from probe's own domain avoids re-routing a live
+  marketing site, and `probe.exit1.dev` is a subdomain of exit1.dev so the link
+  still reads as ours. On the Access bypass list with `/u`, `/c` and `/data`.
+  Upstream is overridable with `PROBE_EVIDENCE_ORIGIN`; the exit1 side emits
+  `PROBE_EVIDENCE_BASE`.
 - `apps/web` gains `/hooks/day3`. `/hooks/ses` is now inbound-only, and its
   `SNS_ALLOWED_TOPIC_ARNS` allowlist is mandatory: empty means none, where it
   used to mean any.

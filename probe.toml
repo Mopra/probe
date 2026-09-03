@@ -54,7 +54,10 @@ paid_lookup_monthly_cap = 50
 
 [campaigns.exit1]
 product       = "exit1.dev"
-generator_url = "https://exit1.dev/api/probe/generate"
+# The Cloud Function directly, not exit1.dev/api/probe/generate: exit1.dev is
+# served by Vercel with no vercel.json, so the Firebase Hosting rewrites in that
+# repo are inert. This call is machine to machine, so the URL only has to work.
+generator_url = "https://europe-west1-exit1-dev.cloudfunctions.net/probeGenerate"
 from_name     = "Morten Pradsgaard"
 from_email    = "morten@mail.exit1.dev"
 reply_to      = "morten@mail.exit1.dev"

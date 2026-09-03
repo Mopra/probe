@@ -14,15 +14,17 @@ import { verifyAccessJwt } from './app/lib/cf-access';
  * is, and app/lib/cf-access.ts verifies its RS256 signature against the team's
  * published keys and checks the audience tag.
  *
- * Four paths are never gated, and that is deliberate: §4 says an unsubscribe
+ * Five paths are never gated, and that is deliberate: §4 says an unsubscribe
  * that 404s while a batch is in flight is a compliance incident, not a bug.
  *   /u/:token    one click unsubscribe, no login, no JavaScript (§9.3)
  *   /c/:token    click redirect, hit by recipients' mail clients (§8.7)
  *   /data        the GDPR Article 14 notice linked from every email (§9.2.4)
+ *   /e/:id       the public evidence report, which is THE link in every email.
+ *                §9.2.3: no signup wall, no email capture, no gate of any kind.
  *   /hooks/*     Day3 and SNS post here; neither carries an Access identity.
  *                Both verify their own signatures instead (§8.7).
  */
-const NEVER_GATED = [/^\/u\//, /^\/c\//, /^\/data(\/|$)/, /^\/hooks\//];
+const NEVER_GATED = [/^\/u\//, /^\/c\//, /^\/data(\/|$)/, /^\/e\//, /^\/hooks\//];
 
 const JWT_HEADER = 'cf-access-jwt-assertion';
 const EMAIL_HEADER = 'cf-access-authenticated-user-email';

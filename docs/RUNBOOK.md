@@ -130,12 +130,23 @@ until it is unsubscribed the rates on `/health` are double counting.
 ## 3. The exit1 generator
 
 probe never writes copy. It asks a product for a finding (§6), and exit1 answers
-at `POST https://exit1.dev/api/probe/generate`
-(`functions/src/probe-generate.ts`).
+from `functions/src/probe-generate.ts`.
 
-The endpoint is reachable publicly through the Hosting rewrite, so the HMAC
-signature is the entire gate. Set the **same value** as probe's
-`PROBE_HMAC_SECRET` on the exit1 side:
+**probe calls the Cloud Function directly**, not `exit1.dev/api/probe/generate`.
+exit1.dev is served by Vercel with no `vercel.json`, so every Firebase Hosting
+rewrite in that repo is inert -- which is a pre-existing consequence of the
+Vercel migration and affects exit1's other endpoints too, not just probe's. The
+generator call is machine to machine, so the URL only has to work:
+
+```
+https://europe-west1-exit1-dev.cloudfunctions.net/probeGenerate
+```
+
+That is what `generator_url` in `probe.toml` points at. If exit1.dev ever gets a
+`vercel.json` with a rewrite, switch it back and nothing else changes.
+
+The endpoint is publicly reachable, so the HMAC signature is the entire gate.
+Set the **same value** as probe's `PROBE_HMAC_SECRET` on the exit1 side:
 
 ```bash
 cd exit1.dev/functions
@@ -143,31 +154,61 @@ firebase functions:secrets:set PROBE_HMAC_SECRET
 firebase deploy --only functions:probeGenerate,functions:probeEvidence
 ```
 
-Then deploy hosting, so the two rewrites exist:
+A Firebase secret only reaches a function when that function is redeployed after
+the secret is set. A mismatched secret makes every generator call come back 401,
+which probe records as `generator_failed` after three attempts. If `/health`
+shows nothing but `generator_failed`, check this first.
 
+To verify the whole path without the worker, send one signed request by hand:
+
+```bash
+SECRET=$(grep ^PROBE_HMAC_SECRET= .env | cut -d= -f2-)
+BODY='{"lead_id":"smoke","product":{"name":"Example","url":"https://example.com","description":null,"source":"manual","launched_at":null,"tags":[]},"recipient":{"first_name":null}}'
+TS=$(date +%s)
+SIG="sha256=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | sed 's/^.*=[ ]*//')"
+curl -sS -w '
+%{http_code}
+' -X POST   https://europe-west1-exit1-dev.cloudfunctions.net/probeGenerate   -H 'content-type: application/json' -H "x-probe-timestamp: $TS"   -H "x-probe-signature: $SIG" --data "$BODY"
 ```
-/api/probe/generate  ->  probeGenerate
-/probe/**            ->  probeEvidence
-```
 
-A mismatched secret makes every generator call come back 401, which probe records
-as `generator_failed` after three attempts. If `/health` shows nothing but
-`generator_failed`, check this first.
+**204 is the success case**: the signature verified and example.com is clean. 401
+means the secrets differ. 400 means the signature was fine and the body was not.
 
-`probeEvidence` serves the public report every email links to: no signup, no
-email capture, no tracking (§9.2.3). Reports live in the `probeFindings`
-Firestore collection, written by `probeGenerate` before it answers, so the link
-in an email can never 404.
+### The evidence report
+
+`probeEvidence` holds the public report every email links to: no signup, no email
+capture, no tracking (§9.2.3). Reports live in the `probeFindings` Firestore
+collection, written by `probeGenerate` before it answers, so the link in an email
+can never 404.
+
+It is served to recipients through **probe's own** `/e/:id`, which proxies to the
+function. Same reason as above: `exit1.dev/probe/<id>` would need a Vercel
+rewrite on the marketing site. `probe.exit1.dev/e/<id>` is a subdomain of
+exit1.dev, so the link still reads as ours, and the whole evidence path stays
+inside probe where it can change without touching exit1.dev.
+
+Two overrides if that ever moves: `PROBE_EVIDENCE_BASE` on the exit1 side is the
+URL the generator puts in the email; `PROBE_EVIDENCE_ORIGIN` on probe's side is
+the upstream the proxy fetches.
 
 ---
 
 ## 4. Database
 
-Supabase project, any region close to the VPS. Two connection strings matter:
+Any Postgres. Currently **Neon**, in a region close to the VPS. The variable is
+still called `SUPABASE_DB_URL` for historical reasons; it takes any Postgres
+connection string.
 
-- The **direct** connection for `apps/worker` and for migrations.
-- The **transaction pooler** connection for `apps/web` on Vercel. The db client
-  detects `pooler` in the host and disables prepared statements automatically.
+Two connection strings matter, and they are not interchangeable:
+
+- The **direct** (unpooled) host for `apps/worker` and for migrations.
+- The **pooled** host for `apps/web` on Vercel, whose serverless functions open
+  many short-lived connections.
+
+The client detects the pooled host by the literal string `pooler` in the
+hostname and turns prepared statements off for it, because a transaction pooler
+cannot serve a named prepared statement. Neon's pooled host is
+`...-pooler.<region>.aws.neon.tech`, so that detection works unchanged.
 
 ```bash
 SUPABASE_DB_URL='postgres://...' pnpm migrate --dry   # list pending
@@ -224,8 +265,16 @@ set that header to anything. So:
    /u/*        unsubscribe
    /c/*        click redirect
    /data       the Article 14 notice
+   /e/*        the evidence report, which is THE link in every email
    /hooks/*    Day3 and SNS, which verify their own signatures instead
    ```
+
+   In the current Zero Trust UI a Bypass policy applies to a whole application,
+   not to a path, so these live in a SECOND application (`probe-public`) whose
+   destinations are `probe.exit1.dev` with a Path of `u`, `c`, `data`, `e` and
+   `hooks`, and whose single policy is Bypass / Everyone. Access matches the
+   most specific path first, so those five hit the bypass app and everything
+   else stays gated. Allow a minute for the change to propagate.
 
 5. Turn on **Vercel Deployment Protection** as well, so the origin is not
    reachable without Cloudflare in front of it. Belt and braces: step 2 is what
