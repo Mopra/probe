@@ -121,10 +121,12 @@ export async function main(): Promise<void> {
   every('30 6 * * *', 'sweep', runSweep);
   every('0 7 * * *', 'resolve', runResolve);
   every('30 7 * * *', 'generate', runGenerate);
-  // The generator answers 202 and works for 60 to 90 minutes (§6), so one pass
-  // at 07:30 would leave every pending proof unpolled until tomorrow. Re-poll
-  // through the day; duePendingProofs and next_poll_at decide what is actually
-  // due, so an extra tick costs one query.
+  // §6 allows a generator to answer 202 and be polled, so one pass at 07:30
+  // would leave anything unfinished unpolled until tomorrow. exit1's generator
+  // is synchronous and answers in seconds, so today this mostly re-polls calls
+  // that errored and are backing off; the contract still allows the other shape
+  // and this is what makes it work. duePendingProofs and next_poll_at decide
+  // what is actually due, so an extra tick costs one query.
   //
   // The window used to be 8-11, matched to a 07:30 start. That silently
   // discarded any work started outside it: the two hour budget keeps running

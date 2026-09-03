@@ -51,6 +51,8 @@ export interface CampaignRow {
   from_email: string;
   reply_to: string | null;
   paused: boolean;
+  /** Whether matching may route leads here. `paused` gates sending only. */
+  routable: boolean;
   warmup_start: Date | null;
   daily_cap: number;
   timezone: string;

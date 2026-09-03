@@ -70,6 +70,10 @@ create table if not exists campaigns (
   from_email    text not null,              -- 'morten@mail.exit1.dev'
   reply_to      text,
   paused        boolean not null default true,
+  -- Whether matching may route leads here at all. Distinct from `paused`, which
+  -- gates sending only: a paused campaign still collects leads in its queue,
+  -- and a campaign whose generator does not exist yet must collect none.
+  routable      boolean not null default true,
   warmup_start  date,
   daily_cap     int not null default 50,
   timezone      text not null default 'Europe/Copenhagen',

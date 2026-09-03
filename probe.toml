@@ -70,6 +70,12 @@ exclude_keywords = ["uptime monitor", "status page", "observability", "monitorin
 
 [campaigns.day3]
 product       = "day3.app"
+# NOT ROUTABLE. day3.app has no /api/probe/generate: the URL below returns the
+# marketing site's 404 page. Matching is round robin, so while this was routable
+# it took half of every intake: 29 of the first 61 leads, and every one of them
+# that got as far as a generator call spent it collecting 404s. Flip this to
+# true the day the endpoint ships, and not before.
+routable      = false
 generator_url = "https://day3.app/api/probe/generate"
 from_name     = "Morten Pradsgaard"
 from_email    = "morten@mail.day3.app"

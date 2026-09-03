@@ -47,8 +47,9 @@ const log = logger('job.generate');
  * Runs `fn` over `items` with at most `limit` in flight, preserving output
  * order. Concurrency is capped at generator_concurrency (3) so exit1's probe
  * infrastructure is not hammered by exit1's own outreach tool (§8.4): the
- * generator spends 60 to 90 minutes probing a stranger's site per lead, and
- * twenty of those at once is a self-inflicted outage.
+ * generator fetches a stranger's landing page, its certificate and up to a
+ * dozen of its links, and twenty of those at once on a launch morning is a
+ * self-inflicted outage on a site that is already under load.
  *
  * Small enough to own rather than depend on.
  */
@@ -157,9 +158,12 @@ export function errorBackoffMs(attempts: number): number {
 }
 
 /** True when the elapsed-time budget has run out. §6: the budget is elapsed
- *  time, not poll count, and it is two hours, sized so the exit1 probe run of
- *  60 to 90 minutes finishes with headroom. Shortening it would start
- *  discarding findings that were about to arrive. */
+ *  time, not poll count.
+ *
+ *  Two hours is generous for what actually runs today: exit1's generator is
+ *  synchronous and answers in seconds, so nothing reaches this unless a call is
+ *  erroring and being retried. The budget is sized for the contract, which
+ *  allows 202 and polling, rather than for the one generator that exists. */
 export function budgetExhausted(firstRequestedAt: Date | null, now: Date, budgetMs: number): boolean {
   if (!firstRequestedAt) return false;
   return now.getTime() - firstRequestedAt.getTime() > budgetMs;
@@ -584,9 +588,12 @@ export async function generateForLead(
     // low end, so this is its pace and not ours.
     const waitMs = Math.max(5_000, effect.nextPollAt.getTime() - Date.now());
     const elapsedMin = Math.round((Date.now() - started) / 60_000);
+    // Reached only when a generator answers 202, or when a call errors and is
+    // retried. exit1's answers in seconds, so seeing this at all is a signal:
+    // either the generator is down, or the URL is wrong.
     say(
-      `still working, ${elapsedMin} min elapsed, next check in ${Math.round(waitMs / 1000)}s` +
-        ` (the exit1 probe takes 60 to 90 minutes)`,
+      `not finished yet: ${effect.effect}, ${elapsedMin} min elapsed, ` +
+        `next check in ${Math.round(waitMs / 1000)}s`,
     );
     await new Promise((resolve) => setTimeout(resolve, waitMs));
   }

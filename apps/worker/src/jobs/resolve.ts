@@ -124,6 +124,26 @@ async function guessJurisdiction(
   return { guess: resolveJurisdiction(guesses), detail };
 }
 
+/**
+ * The campaigns matching may route to. Paused ones stay in: pausing gates
+ * sending, not routing, and a paused campaign's queue is meant to keep filling.
+ *
+ * `routable = false` is the other thing, and it exists because `day3` had no
+ * way to say what was true of it: its generator does not exist, so half of
+ * every intake was round-robined into 404s.
+ */
+function routable(campaigns: CampaignRow[]): CampaignRow[] {
+  const open = campaigns.filter((c) => c.routable);
+  if (open.length === 0) {
+    // Better a loud empty pass than silently routing to a campaign that was
+    // switched off on purpose.
+    log.error('no routable campaigns, every lead will drop as no_match', {
+      campaigns: campaigns.map((c) => c.slug),
+    });
+  }
+  return open;
+}
+
 async function processLead(lead: LeadRow, ctx: Context): Promise<void> {
   const leadLog = log.child({ lead_id: lead.id, domain: lead.domain });
 
@@ -308,7 +328,7 @@ export async function runResolve(): Promise<ResolveSummary> {
   const campaigns = await listCampaigns();
   const ctx: Context = {
     campaigns,
-    candidates: campaigns.map((c) => ({
+    candidates: routable(campaigns).map((c) => ({
       slug: c.slug,
       excludeTags: c.exclude_tags,
       excludeKeywords: c.exclude_keywords,
@@ -383,7 +403,7 @@ export async function resolveOneLead(
   const campaigns = await listCampaigns();
   await processLead(lead, {
     campaigns,
-    candidates: campaigns.map((c) => ({
+    candidates: routable(campaigns).map((c) => ({
       slug: c.slug,
       excludeTags: c.exclude_tags,
       excludeKeywords: c.exclude_keywords,

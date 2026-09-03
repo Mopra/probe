@@ -132,8 +132,7 @@ pnpm --filter @probe/worker cli hash  a@b.com    # peppered hash, for a GDPR req
 pnpm --filter @probe/worker cli erase a@b.com    # GDPR erasure by address or hash
 pnpm --filter @probe/worker cli smoke https://their.site --to you@example.com
                                                  # the whole pipeline end to end, mail to you
-pnpm --filter @probe/worker cli drop-platforms   # repos and demos that are not products
-pnpm --filter @probe/worker cli requalify        # after changing the jurisdiction rule
+pnpm --filter @probe/worker cli reconcile        # apply changed rules to existing leads
 ```
 
 ## Daily shape

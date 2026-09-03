@@ -96,6 +96,7 @@ export function fixtureCampaign(over: Partial<CampaignRow> = {}): CampaignRow {
     from_email: 'morten@mail.exit1.dev',
     reply_to: 'morten@mail.exit1.dev',
     paused: true,
+    routable: true,
     warmup_start: null,
     daily_cap: 50,
     timezone: 'Europe/Copenhagen',

@@ -25,8 +25,7 @@ const COMMANDS = [
   'erase',
   'stuck',
   'smoke',
-  'requalify',
-  'drop-platforms',
+  'reconcile',
 ] as const;
 
 type Command = (typeof COMMANDS)[number];
@@ -86,9 +85,9 @@ function usage(): void {
   console.log('  erase      GDPR erasure by address or hash: `erase a@b.com --yes`');
   console.log('  smoke      put one chosen product into the real pipeline, addressed to you:');
   console.log('             `smoke https://their.site --to you@example.com`');
-  console.log('  requalify  return leads the OLD jurisdiction rule dropped, after changing it');
-  console.log('             (§9.1). Shows what would come back; --yes does it');
-  console.log('  drop-platforms  drop repos, profiles and hosted demos that are not products');
+  console.log('  reconcile  apply the current rules to leads decided under the old ones:');
+  console.log('             platform domains, dead campaigns, jurisdiction changes.');
+  console.log('             Shows the plan; --yes does it');
   console.log('');
   console.log('flags:');
   console.log('  --from-db        dry-run only: render every ready proof instead of fixtures');
@@ -97,7 +96,7 @@ function usage(): void {
   console.log('  --to <email>     smoke only: who the test email is addressed to');
   console.log('  --name <first>   smoke only: the first name the copy greets');
   console.log('  --check          smoke only: run the jurisdiction gate and stop, no writes');
-  console.log('  --yes            erase and stuck: actually do it, rather than showing what would happen');
+  console.log('  --yes            erase, stuck, reconcile: do it, rather than showing what would happen');
 }
 
 /** Set by every command that opens a database connection, so the pool is only
@@ -475,85 +474,99 @@ async function main(): Promise<number> {
       return 0;
     }
 
-    case 'drop-platforms': {
-      // The denylist applied to leads swept before it existed. Sweep and
-      // resolve both check it now, but a lead already past resolve is out of
-      // their reach: github.com had a contact and a running generator call by
-      // the time the list was written.
+    case 'reconcile': {
+      // One command for "the rules changed, fix the rows that were decided
+      // under the old ones".
+      //
+      // It exists because there were three of these and the first question was
+      // always which one to run. Each repair is narrow and says what it did;
+      // together they are just "apply today's rules to yesterday's data".
+      //
+      // What it never touches: suppressions, sent mail, and a lead dropped on
+      // its own merits. `no_contact`, `no_proof` and `contacted_other_campaign`
+      // are verdicts on the lead, not on a rule, and they stand.
       const { isPlatformDomain } = await import('@probe/core');
-      const { dropLead, getProofForLead, listLiveLeads, markProofFailed } = await import(
-        '@probe/db'
+      const { loadConfig } = await import('@probe/config');
+      const {
+        dropLead,
+        getProofForLead,
+        leadsOnUnroutableCampaigns,
+        listLiveLeads,
+        markProofFailed,
+        requalifyJurisdictionDrops,
+        resetLeadToDiscovered,
+      } = await import('@probe/db');
+
+      const cfg = loadConfig();
+      const blocked = cfg.global.blocked_countries;
+
+      // 1. Platform domains: repos, profiles and hosted demos.
+      const platforms = (await listLiveLeads()).filter((l) => isPlatformDomain(l.domain));
+      // 2. Leads stranded on a campaign that no longer takes any. A platform
+      //    lead can be both, and dropping it must win: rerouting one after
+      //    dropping it would put it straight back into the pipeline.
+      const platformIds = new Set(platforms.map((l) => l.id));
+      const stranded = (await leadsOnUnroutableCampaigns()).filter((l) => !platformIds.has(l.id));
+      // 3. Leads the old jurisdiction rule dropped that the current one allows.
+      const requalifiable = await requalifyJurisdictionDrops(blocked);
+
+      console.log('reconcile, against the rules as they stand now');
+      console.log('');
+      console.log(`blocked countries      ${blocked.join(', ')}`);
+      console.log(
+        `routable campaigns     ${cfg.campaigns.filter((c) => c.routable).map((c) => c.slug).join(', ') || 'NONE'}`,
       );
+      console.log('');
+      console.log(`platform domains to drop        ${platforms.length}`);
+      for (const l of platforms) console.log(`  ${l.domain.padEnd(34)} ${l.status}`);
+      console.log(`stranded on a dead campaign     ${stranded.length}`);
+      for (const l of stranded) console.log(`  ${l.domain.padEnd(34)} ${l.status}`);
+      console.log(`jurisdiction drops to requalify ${requalifiable.length}`);
 
-      const junk = (await listLiveLeads()).filter((l) => isPlatformDomain(l.domain));
-      console.log(`platform leads still live  ${junk.length}`);
-      for (const lead of junk) console.log(`  ${lead.domain.padEnd(34)} ${lead.status}`);
+      const total = platforms.length + stranded.length + requalifiable.length;
+      if (total === 0) {
+        console.log('');
+        console.log('Nothing to do: every lead already matches the current rules.');
+        return 0;
+      }
 
-      if (junk.length === 0) return 0;
       if (!flags.yes) {
         console.log('');
-        console.log('These are repos, profiles and hosted demos, not products. Dropping them');
-        console.log('also fails any proof still generating for them, so no generator call and');
-        console.log('no email is spent on somebody else\'s domain. Pass --yes to do it.');
+        console.log('Platform leads are dropped and any proof still running for them is failed.');
+        console.log('Stranded leads go back to `discovered` with no campaign, so the next');
+        console.log('resolve routes them somewhere that can actually generate.');
+        console.log('Requalified leads go back to `discovered` and face the current blocklist.');
+        console.log('');
+        console.log('Suppressions are never touched, and neither is anything already sent.');
+        console.log('Pass --yes to do it, then run `cli resolve`.');
         return 1;
       }
 
-      for (const lead of junk) {
-        // The proof first: a pending proof outlives its lead's status, because
-        // duePendingProofs reads the proofs table and never looks at the lead.
+      for (const lead of platforms) {
         const proof = await getProofForLead(lead.id);
         if (proof && (proof.status === 'pending' || proof.status === 'ready')) {
           await markProofFailed(proof.id, 'platform domain, not a product');
         }
         await dropLead(lead.id, 'platform_domain');
-        console.log(`  dropped ${lead.domain}`);
       }
+      for (const lead of stranded) {
+        const proof = await getProofForLead(lead.id);
+        if (proof && (proof.status === 'pending' || proof.status === 'ready')) {
+          await markProofFailed(proof.id, 'campaign is no longer routable');
+        }
+        await resetLeadToDiscovered(lead.id);
+      }
+      await requalifyJurisdictionDrops(blocked, { apply: true });
+
       console.log('');
-      console.log(`${junk.length} dropped.`);
+      console.log(`dropped     ${platforms.length} platform domains`);
+      console.log(`rerouted    ${stranded.length} stranded leads`);
+      console.log(`requalified ${requalifiable.length} jurisdiction drops`);
+      console.log('');
+      console.log('Run `cli resolve` to put them through the current rules.');
       return 0;
     }
 
-    case 'requalify': {
-      // §9.1 changed under leads that were already dropped for it. Without
-      // this they stay dead forever: drop_reason is permanent, and resolve
-      // only ever reads 'discovered' and 'matched'.
-      const { loadConfig } = await import('@probe/config');
-      const { requalifyJurisdictionDrops } = await import('@probe/db');
-      const blocked = loadConfig().global.blocked_countries;
-
-      const found = await requalifyJurisdictionDrops(blocked, { apply: flags.yes });
-      console.log(`blocked countries  ${blocked.join(', ')}`);
-      console.log(`eligible leads     ${found.length}`);
-      if (found.length === 0) {
-        console.log('');
-        console.log('Nothing to bring back: every jurisdiction_blocked lead is still blocked.');
-        return 0;
-      }
-
-      const byCountry = new Map<string, number>();
-      for (const r of found) {
-        const key = r.jurisdiction ?? 'unknown';
-        byCountry.set(key, (byCountry.get(key) ?? 0) + 1);
-      }
-      console.log('');
-      for (const [country, n] of [...byCountry].sort((a, b) => b[1] - a[1])) {
-        console.log(`  ${country.padEnd(10)} ${n}`);
-      }
-
-      if (!flags.yes) {
-        console.log('');
-        console.log('This resets each one to `discovered` and clears its drop_reason, so the');
-        console.log('next `cli resolve` runs it through the gate again under the current rule.');
-        console.log('Nothing else is revived: a lead dropped as suppressed, no_contact or');
-        console.log('contacted_other_campaign was judged on its own merits and stays dropped.');
-        console.log('Pass --yes to do it.');
-        return 1;
-      }
-
-      console.log('');
-      console.log(`${found.length} leads returned to 'discovered'. Run \`cli resolve\` next.`);
-      return 0;
-    }
 
     case 'smoke': {
       // The end-to-end rehearsal (§13 M6). It inserts a product you name as a
@@ -689,9 +702,7 @@ async function main(): Promise<number> {
       }
 
       // ---- The generator. Blocking, because a person is watching. ----------
-      console.log('generating. The exit1 probe takes 60 to 90 minutes against a');
-      console.log('real site, and this waits for it rather than leaving you to poll.');
-      console.log('');
+      console.log('generating...');
       const effect = await generateForLead(after.id, (m) => console.log(`  ${m}`));
 
       if (effect.effect !== 'ready') {

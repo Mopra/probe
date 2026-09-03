@@ -57,6 +57,7 @@ export interface CampaignConfig {
   daily_cap: number;
   exclude_tags: string[];
   exclude_keywords: string[];
+  routable: boolean;                // whether matching may route leads here
 }
 
 export interface ProbeConfig {

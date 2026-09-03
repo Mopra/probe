@@ -119,6 +119,10 @@ export const CampaignSchema = z.object({
   daily_cap: z.number().int().min(0).default(50),
   exclude_tags: z.array(z.string()).default([]),
   exclude_keywords: z.array(z.string()).default([]),
+  // Whether matching may route leads to this campaign. Separate from `paused`,
+  // which gates sending: a campaign whose generator does not exist yet must
+  // receive no leads at all, and pausing it would still fill its queue.
+  routable: z.boolean().default(true),
 });
 
 export const FileSchema = z.object({

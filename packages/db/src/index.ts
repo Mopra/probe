@@ -52,6 +52,8 @@ export {
   dropLead,
   listLeads,
   listLiveLeads,
+  leadsOnUnroutableCampaigns,
+  resetLeadToDiscovered,
   countLeads,
   requalifyJurisdictionDrops,
   type NewLead,

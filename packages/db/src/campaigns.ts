@@ -12,6 +12,7 @@ export interface CampaignSeed {
   timezone: string;
   exclude_tags: string[];
   exclude_keywords: string[];
+  routable: boolean;
 }
 
 /**
@@ -28,11 +29,11 @@ export async function seedCampaigns(campaigns: CampaignSeed[]): Promise<void> {
       await tx`
         insert into campaigns (
           slug, product, generator_url, from_name, from_email, reply_to,
-          daily_cap, timezone, exclude_tags, exclude_keywords
+          daily_cap, timezone, exclude_tags, exclude_keywords, routable
         ) values (
           ${c.slug}, ${c.product}, ${c.generator_url}, ${c.from_name},
           ${c.from_email}, ${c.reply_to ?? null}, ${c.daily_cap}, ${c.timezone},
-          ${tx.array(c.exclude_tags)}, ${tx.array(c.exclude_keywords)}
+          ${tx.array(c.exclude_tags)}, ${tx.array(c.exclude_keywords)}, ${c.routable}
         )
         on conflict (slug) do update
           set product          = excluded.product,
@@ -43,7 +44,8 @@ export async function seedCampaigns(campaigns: CampaignSeed[]): Promise<void> {
               daily_cap        = excluded.daily_cap,
               timezone         = excluded.timezone,
               exclude_tags     = excluded.exclude_tags,
-              exclude_keywords = excluded.exclude_keywords
+              exclude_keywords = excluded.exclude_keywords,
+              routable         = excluded.routable
       `;
     }
   });

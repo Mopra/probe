@@ -221,8 +221,8 @@ describe('applyOutcome', () => {
   });
 
   it('pending at 119 minutes is still inside the budget', async () => {
-    // §6 sizes the budget so a 60 to 90 minute exit1 probe run finishes with
-    // headroom. Nothing here may shorten it.
+    // §6 sizes the budget for the contract, which allows 202 and polling, not
+    // for exit1's generator, which answers synchronously in seconds.
     const first = new Date(NOW.getTime() - 119 * 60_000);
     const rec = recorder();
     const effect = await applyOutcome(

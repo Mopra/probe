@@ -80,6 +80,40 @@ export async function listLeadsByStatus(
 }
 
 /**
+ * Leads sitting on a campaign that no longer takes leads, short of being sent.
+ *
+ * Returned to `discovered` with no campaign, so the next resolve routes them
+ * again. Their status is left to the caller to clean up alongside the proof: a
+ * pending proof outlives its lead's status, because duePendingProofs reads the
+ * proofs table and never looks at the lead.
+ */
+export async function leadsOnUnroutableCampaigns(): Promise<LeadRow[]> {
+  const sql = getSql();
+  return rows<LeadRow>(await sql`
+    select l.* from leads l
+      join campaigns c on c.id = l.campaign_id
+     where c.routable = false
+       -- A drop_reason means this lead was already judged, and on its own
+       -- merits: no_contact is "the cascade found nothing", which would have
+       -- been just as true on any other campaign. Only leads still live are
+       -- stranded by the routing change.
+       and l.drop_reason is null
+       and l.status not in ('sent', 'approved')
+     order by l.discovered_at
+  `);
+}
+
+/** Back to the start of the pipeline, campaign cleared. */
+export async function resetLeadToDiscovered(id: string): Promise<void> {
+  const sql = getSql();
+  await sql`
+    update leads
+       set status = 'discovered', campaign_id = null, drop_reason = null
+     where id = ${id}
+  `;
+}
+
+/**
  * Every lead not already dropped, whatever stage it reached.
  *
  * The platform denylist lives in @probe/core as code, so the filtering cannot
@@ -91,7 +125,11 @@ export async function listLiveLeads(limit = 2000): Promise<LeadRow[]> {
   const sql = getSql();
   return rows<LeadRow>(await sql`
     select * from leads
-     where status <> 'dropped'
+     -- drop_reason, not status: a lead dropped as no_contact keeps the status
+     -- 'no_contact' rather than 'dropped', and it is just as finished. Testing
+     -- status alone made reconcile list the same seven leads every run and
+     -- change nothing, because dropLead refuses to overwrite a reason.
+     where drop_reason is null
      order by discovered_at
      limit ${clampLimit(limit, 2000, 10000)}
   `);

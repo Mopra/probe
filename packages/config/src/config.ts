@@ -36,6 +36,7 @@ export interface CampaignConfig {
   daily_cap: number;
   exclude_tags: string[];
   exclude_keywords: string[];
+  routable: boolean;
 }
 
 export interface ProbeConfig {

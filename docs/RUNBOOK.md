@@ -459,7 +459,8 @@ cascade would find the founder and the whole point is that this lands with you.
 
 It runs the whole thing and does not come back until the email has been sent, or
 until something has stopped it and said what. There is nothing to poll, nothing
-to approve and no second command:
+to approve and no second command. It takes a few seconds: exit1's generator is
+synchronous and answers 200 or 204 in one call.
 
 ```
 lead     <id>  some-product.com  new
@@ -467,12 +468,7 @@ to       you@example.com
 country  US (whois)
 status   contact_resolved
 
-generating. The exit1 probe takes 60 to 90 minutes against a real
-site, and this waits for it rather than leaving you to poll.
-
-  still working, 12 min elapsed, next check in 300s
-  still working, 17 min elapsed, next check in 300s
-  ...
+generating...
 
 finding ready.
 sending...
@@ -558,13 +554,9 @@ it is plain code and needs no migration.
 
 For leads that were already past resolve when the list changed:
 
-```bash
-pnpm --filter @probe/worker cli drop-platforms        # what is still live
-pnpm --filter @probe/worker cli drop-platforms --yes  # drop them, fail their proofs
-```
-
-It fails any proof still generating, because a pending proof outlives its lead's
-status: `duePendingProofs` reads the proofs table and never looks at the lead.
+`cli reconcile` picks them up (§6.8). It fails any proof still generating,
+because a pending proof outlives its lead's status: `duePendingProofs` reads the
+proofs table and never looks at the lead.
 
 ## 6.7 Changing the jurisdiction rule
 
@@ -578,22 +570,66 @@ dropped carries `drop_reason = 'jurisdiction_blocked'` and status `dropped`, and
 resolve only ever reads `discovered` and `matched`, so those leads are invisible
 forever unless they are brought back:
 
-```bash
-pnpm --filter @probe/worker cli requalify        # what would come back, by country
-pnpm --filter @probe/worker cli requalify --yes  # reset them to 'discovered'
-pnpm --filter @probe/worker cli resolve          # run them through the current rule
-```
-
-`requalify` is the only place `drop_reason` is ever cleared, and it is deliberately
-narrow: only `jurisdiction_blocked`, and only where the current blocklist does
-not block the country that was recorded. A lead dropped as `suppressed`,
-`no_contact` or `contacted_other_campaign` was judged on its own merits and
-stays dropped. A suppression is permanent under rule 2 and nothing in this
-command can touch it.
+`cli reconcile` picks them up (§6.8), and it is the only place `drop_reason` is
+ever cleared. Deliberately narrow: only `jurisdiction_blocked`, and only where
+the current blocklist does not block the country that was recorded. A lead
+dropped as `suppressed`, `no_contact` or `contacted_other_campaign` was judged
+on its own merits and stays dropped. A suppression is permanent under rule 2 and
+nothing in this command can touch it.
 
 Note what a widened rule means for leads swept months ago: their contact was
-never resolved, so requalify sends them back through the full cascade, and their
-jurisdiction is guessed again from a site that may since have changed.
+never resolved, so they go back through the full cascade, and their jurisdiction
+is guessed again from a site that may since have changed.
+
+---
+
+## 6.8 `cli reconcile`
+
+One command for "the rules changed, fix the rows that were decided under the old
+ones". It replaced three separate repair commands, because the first question
+was always which one to run.
+
+```bash
+pnpm --filter @probe/worker cli reconcile        # the plan
+pnpm --filter @probe/worker cli reconcile --yes  # do it
+pnpm --filter @probe/worker cli resolve          # then put them through the rules
+```
+
+Three repairs, each narrow:
+
+| Repair | What it catches |
+|---|---|
+| Platform domains | A repo, profile or hosted demo swept before the denylist existed |
+| Stranded leads | A lead on a campaign that is no longer `routable` |
+| Jurisdiction requalification | A lead the old blocklist dropped that the current one allows |
+
+What it never touches: suppressions, anything already sent, and a lead dropped
+on its own merits. `no_contact`, `no_proof` and `contacted_other_campaign` are
+verdicts on the lead rather than on a rule, and they stand.
+
+A stranded or requalified lead goes back to `discovered` with its campaign
+cleared, so the next resolve routes it from scratch. Any proof still running for
+a lead being dropped or rerouted is failed first: a pending proof outlives its
+lead's status, because `duePendingProofs` reads the proofs table and never looks
+at the lead.
+
+---
+
+## 6.9 Campaigns that cannot generate
+
+`routable` in `probe.toml`, and a column on `campaigns`. It is not `paused`:
+pausing gates **sending** and deliberately leaves routing alone, so a paused
+campaign keeps filling its queue while no mail goes out. `routable = false` is
+the other thing, "send no leads here at all".
+
+`day3` is the case it was written for. `day3.app` has no
+`/api/probe/generate`, so the generator URL returns the marketing site's 404
+page. Matching is round robin, so half of every intake went there: 29 of the
+first 61 leads, and each one that reached a generator call spent three attempts
+collecting 404s. Nothing on `/health` said so, because they showed as `pending`,
+which reads like work in progress rather than a URL that never existed.
+
+Flip it to `true` the day the endpoint ships, then `cli seed`.
 
 ---
 

@@ -43,6 +43,7 @@ export async function runSeed(): Promise<SeedSummary> {
     timezone: cfg.global.timezone,
     exclude_tags: c.exclude_tags,
     exclude_keywords: c.exclude_keywords,
+    routable: c.routable,
   }));
 
   await seedCampaigns(payload);
