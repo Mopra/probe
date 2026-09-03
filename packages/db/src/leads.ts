@@ -137,6 +137,56 @@ export async function dropLead(
   `;
 }
 
+/**
+ * Returns leads dropped as `jurisdiction_blocked` whose recorded country the
+ * current blocklist does not block, and with `apply` puts them back into the
+ * pipeline at `discovered`.
+ *
+ * The one place drop_reason is ever cleared, and it earns the exception: those
+ * leads were not dropped on their own merits but by a rule that has since
+ * changed, and without this the only record of the change is a lead that stays
+ * dead forever. Nothing else is revived. A lead dropped as `suppressed`,
+ * `no_contact` or `contacted_other_campaign` was judged on itself, and a
+ * suppression in particular is permanent by rule 2.
+ *
+ * `null` jurisdiction is included, because under a blocklist unknown is
+ * contactable. Under the allowlist that was the majority of every intake.
+ */
+export async function requalifyJurisdictionDrops(
+  blocked: string[],
+  opts?: { apply?: boolean },
+): Promise<{ domain: string; jurisdiction: string | null }[]> {
+  const sql = getSql();
+  const upper = blocked.map((c) => c.trim().toUpperCase()).filter((c) => c.length > 0);
+  // An empty blocklist would make `not in ()` invalid SQL, so the two cases are
+  // written separately rather than papered over with a sentinel value.
+  const eligible =
+    upper.length > 0
+      ? sql`
+          select id, domain, jurisdiction from leads
+           where status = 'dropped'
+             and drop_reason = 'jurisdiction_blocked'
+             and (jurisdiction is null or upper(jurisdiction) <> all(${upper}::text[]))
+        `
+      : sql`
+          select id, domain, jurisdiction from leads
+           where status = 'dropped'
+             and drop_reason = 'jurisdiction_blocked'
+        `;
+  const found = rows<{ id: string; domain: string; jurisdiction: string | null }>(await eligible);
+  if (found.length === 0 || !opts?.apply) {
+    return found.map((r) => ({ domain: r.domain, jurisdiction: r.jurisdiction }));
+  }
+
+  await sql`
+    update leads
+       set status = 'discovered',
+           drop_reason = null
+     where id = any(${found.map((r) => r.id)}::uuid[])
+  `;
+  return found.map((r) => ({ domain: r.domain, jurisdiction: r.jurisdiction }));
+}
+
 const LEAD_LIST_SELECT = `
   select l.*,
          c.slug   as campaign_slug,

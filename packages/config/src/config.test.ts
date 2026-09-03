@@ -39,39 +39,48 @@ afterEach(() => {
 });
 
 describe('§9.1 the DK refusal', () => {
-  it('refuses to load when DK is in allowed_countries', () => {
+  it('refuses to load when DK is missing from blocked_countries', () => {
     const p = writeToml(`
 [global]
 postal_address = "x"
-allowed_countries = ["US", "DK"]
+blocked_countries = ["DE"]
 ${MINIMAL_CAMPAIGN}`);
     expect(() => loadConfig({ path: p })).toThrow(ConfigError);
     expect(() => loadConfig({ path: p })).toThrow(/DK/);
   });
 
-  it('refuses lower case dk too', () => {
+  it('refuses an empty blocklist, which would contact everyone', () => {
     const p = writeToml(`
 [global]
 postal_address = "x"
-allowed_countries = ["dk"]
+blocked_countries = []
 ${MINIMAL_CAMPAIGN}`);
     expect(() => loadConfig({ path: p })).toThrow(ConfigError);
+  });
+
+  it('accepts lower case dk, since countries normalise before the check', () => {
+    const p = writeToml(`
+[global]
+postal_address = "x"
+blocked_countries = ["dk"]
+${MINIMAL_CAMPAIGN}`);
+    expect(loadConfig({ path: p }).global.blocked_countries).toEqual(['DK']);
   });
 
   it('normalises countries to upper case', () => {
     const p = writeToml(`
 [global]
 postal_address = "x"
-allowed_countries = ["us", "ie"]
+blocked_countries = ["dk", "de"]
 ${MINIMAL_CAMPAIGN}`);
-    expect(loadConfig({ path: p }).global.allowed_countries).toEqual(['US', 'IE']);
+    expect(loadConfig({ path: p }).global.blocked_countries).toEqual(['DK', 'DE']);
   });
 
   it('rejects anything that is not a two letter code', () => {
     const p = writeToml(`
 [global]
 postal_address = "x"
-allowed_countries = ["USA"]
+blocked_countries = ["DNK"]
 ${MINIMAL_CAMPAIGN}`);
     expect(() => loadConfig({ path: p })).toThrow(/alpha-2/);
   });
@@ -83,7 +92,7 @@ describe('the committed probe.toml', () => {
     expect(cfg.global.timezone).toBe('Europe/Copenhagen');
     expect(cfg.global.send_window).toEqual(['09:00', '16:00']);
     expect(cfg.global.send_days).toEqual(['mon', 'tue', 'wed', 'thu', 'fri']);
-    expect(cfg.global.allowed_countries).toEqual(['US']);
+    expect(cfg.global.blocked_countries).toEqual(['DK', 'DE']);
     expect(cfg.global.gap_floor_minutes).toBe(4);
     expect(cfg.global.gap_jitter).toBe(0.4);
     expect(cfg.global.generator_min_severity).toBe(1);
@@ -238,7 +247,7 @@ describe('global defaults', () => {
     const g = loadConfig({ path: p }).global;
     expect(g.timezone).toBe('Europe/Copenhagen');
     expect(g.send_window).toEqual(['09:00', '16:00']);
-    expect(g.allowed_countries).toEqual(['US']);
+    expect(g.blocked_countries).toEqual(['DK', 'DE']);
     expect(g.generator_concurrency).toBe(3);
     expect(g.generator_max_attempts).toBe(3);
     expect(g.rate_window_days).toBe(7);

@@ -54,7 +54,7 @@ function banner(): void {
   const fields = {
     send_enabled: enabled,
     campaigns: cfg.campaigns.map((c) => c.slug),
-    allowed_countries: cfg.global.allowed_countries,
+    blocked_countries: cfg.global.blocked_countries,
     send_days: cfg.global.send_days,
     send_window: cfg.global.send_window,
     timezone: cfg.global.timezone,

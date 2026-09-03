@@ -12,7 +12,7 @@ export interface GlobalConfig {
   send_window: [string, string];
   gap_floor_minutes: number;
   gap_jitter: number;
-  allowed_countries: string[];
+  blocked_countries: string[];
   postal_address: string;
   public_base_url: string;
   generator_concurrency: number;
@@ -51,13 +51,18 @@ export class ConfigError extends Error {
 }
 
 /**
- * §9.1. Denmark is never allowlisted, and the loader refuses to start rather
+ * §9.1. Denmark is never contactable, and the loader refuses to start rather
  * than letting a config edit quietly turn on cold email into the home
  * regulator's jurisdiction. This is a hard rule, not a validation rule, so it
  * lives here rather than in the zod schema where a future refactor could relax
  * it by accident.
+ *
+ * The gate is now a blocklist, so the rule inverts with it: DK missing from
+ * blocked_countries is the failure, where DK present in allowed_countries used
+ * to be. Same guarantee, opposite spelling, and the inversion is exactly the
+ * kind of edit that would otherwise drop the guard by accident.
  */
-const NEVER_ALLOWED = new Set(['DK']);
+const ALWAYS_BLOCKED = new Set(['DK']);
 
 const CONFIG_FILENAME = 'probe.toml';
 
@@ -96,7 +101,7 @@ function formatZodIssues(prefix: string, err: z.ZodError): string {
 
 /**
  * Reads probe.toml, validates with zod, applies defaults. Throws ConfigError if
- * 'DK' appears in allowed_countries (§9.1), if the window is malformed, or if
+ * 'DK' is absent from blocked_countries (§9.1), if the window is malformed, or if
  * any campaign is incomplete. Searches upward from cwd for probe.toml when no
  * path is given. Cached by resolved path.
  */
@@ -129,11 +134,11 @@ export function loadConfig(opts?: { path?: string; cwd?: string }): ProbeConfig 
 
   const globalParsed = shape.data.global as z.infer<typeof GlobalSchema>;
 
-  const offending = globalParsed.allowed_countries.filter((c) => NEVER_ALLOWED.has(c));
-  if (offending.length > 0) {
+  const missing = [...ALWAYS_BLOCKED].filter((c) => !globalParsed.blocked_countries.includes(c));
+  if (missing.length > 0) {
     throw new ConfigError(
-      `${resolved}: allowed_countries contains ${offending.join(', ')}. ` +
-        'Denmark is never allowlisted (PLAN.md §9.1): cold email into the home ' +
+      `${resolved}: blocked_countries is missing ${missing.join(', ')}. ` +
+        'Denmark is never contactable (PLAN.md §9.1): cold email into the home ' +
         'regulator\'s jurisdiction is not a configuration option.',
     );
   }
@@ -157,8 +162,8 @@ export function loadConfig(opts?: { path?: string; cwd?: string }): ProbeConfig 
       ...globalParsed,
       send_window: [globalParsed.send_window[0], globalParsed.send_window[1]],
       // De-duplicate while keeping order, so a repeated country cannot skew any
-      // count that iterates the allowlist.
-      allowed_countries: Array.from(new Set(globalParsed.allowed_countries)),
+      // count that iterates the blocklist.
+      blocked_countries: Array.from(new Set(globalParsed.blocked_countries)),
     },
     campaigns,
   };

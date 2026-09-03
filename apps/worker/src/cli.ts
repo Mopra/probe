@@ -25,6 +25,7 @@ const COMMANDS = [
   'erase',
   'stuck',
   'smoke',
+  'requalify',
 ] as const;
 
 type Command = (typeof COMMANDS)[number];
@@ -84,6 +85,8 @@ function usage(): void {
   console.log('  erase      GDPR erasure by address or hash: `erase a@b.com --yes`');
   console.log('  smoke      put one chosen product into the real pipeline, addressed to you:');
   console.log('             `smoke https://their.site --to you@example.com`');
+  console.log('  requalify  return leads the OLD jurisdiction rule dropped, after changing it');
+  console.log('             (§9.1). Shows what would come back; --yes does it');
   console.log('');
   console.log('flags:');
   console.log('  --from-db        dry-run only: render every ready proof instead of fixtures');
@@ -164,7 +167,10 @@ async function main(): Promise<number> {
       console.log(`  PROBE_SEND_ENABLED   ${sendEnabled() ? 'true  (LIVE)' : 'false (dry run)'}`);
       console.log(`  public base url      ${safe(() => publicBaseUrl())}`);
       console.log(`  postal address       ${cfg.global.postal_address}`);
-      console.log(`  allowed countries    ${cfg.global.allowed_countries.join(', ')}`);
+      console.log(
+        `  blocked countries    ${cfg.global.blocked_countries.join(', ')}  ` +
+          '(everything else, unknown included, is contactable)',
+      );
       console.log(`  campaigns            ${cfg.campaigns.map((c) => c.slug).join(', ')}`);
       console.log('');
 
@@ -467,6 +473,48 @@ async function main(): Promise<number> {
       return 0;
     }
 
+    case 'requalify': {
+      // §9.1 changed under leads that were already dropped for it. Without
+      // this they stay dead forever: drop_reason is permanent, and resolve
+      // only ever reads 'discovered' and 'matched'.
+      const { loadConfig } = await import('@probe/config');
+      const { requalifyJurisdictionDrops } = await import('@probe/db');
+      const blocked = loadConfig().global.blocked_countries;
+
+      const found = await requalifyJurisdictionDrops(blocked, { apply: flags.yes });
+      console.log(`blocked countries  ${blocked.join(', ')}`);
+      console.log(`eligible leads     ${found.length}`);
+      if (found.length === 0) {
+        console.log('');
+        console.log('Nothing to bring back: every jurisdiction_blocked lead is still blocked.');
+        return 0;
+      }
+
+      const byCountry = new Map<string, number>();
+      for (const r of found) {
+        const key = r.jurisdiction ?? 'unknown';
+        byCountry.set(key, (byCountry.get(key) ?? 0) + 1);
+      }
+      console.log('');
+      for (const [country, n] of [...byCountry].sort((a, b) => b[1] - a[1])) {
+        console.log(`  ${country.padEnd(10)} ${n}`);
+      }
+
+      if (!flags.yes) {
+        console.log('');
+        console.log('This resets each one to `discovered` and clears its drop_reason, so the');
+        console.log('next `cli resolve` runs it through the gate again under the current rule.');
+        console.log('Nothing else is revived: a lead dropped as suppressed, no_contact or');
+        console.log('contacted_other_campaign was judged on its own merits and stays dropped.');
+        console.log('Pass --yes to do it.');
+        return 1;
+      }
+
+      console.log('');
+      console.log(`${found.length} leads returned to 'discovered'. Run \`cli resolve\` next.`);
+      return 0;
+    }
+
     case 'smoke': {
       // The end-to-end rehearsal (§13 M6). It inserts a product you name as a
       // lead and pins the contact to an address you name, which is the one
@@ -505,11 +553,11 @@ async function main(): Promise<number> {
         console.log(`domain   ${j.domain}`);
         console.log(`country  ${j.country ?? 'unknown'} (${j.source}${j.detail ? `, ${j.detail}` : ''})`);
         console.log(j.allowed ? 'PASSES the jurisdiction gate' : 'BLOCKED at the jurisdiction gate');
-        if (!j.allowed && j.country === null) {
+        if (j.allowed && j.country === null) {
           console.log('');
-          console.log('Unknown is blocked, never given the benefit of the doubt (§9.1). A US');
-          console.log('product passes when it says so somewhere probe can read it: a country');
-          console.log('in RDAP, or a street address on the site, /contact or /legal.');
+          console.log('Passing on "unknown" rather than on a country probe could read. The');
+          console.log('gate is a blocklist (§9.1), so a lead whose country cannot be');
+          console.log('established is contactable by default.');
         }
         return j.allowed ? 0 : 1;
       }
@@ -570,7 +618,7 @@ async function main(): Promise<number> {
         // rather than reporting a failure.
         const why =
           summary.jurisdiction_blocked > 0
-            ? `the jurisdiction gate: ${after.jurisdiction ?? 'unknown'} is not in allowed_countries`
+            ? `the jurisdiction gate: ${after.jurisdiction ?? 'unknown'} is in blocked_countries`
             : summary.no_match > 0
               ? 'no campaign matched it. Check exclude_tags and exclude_keywords in probe.toml'
               : summary.suppressed > 0

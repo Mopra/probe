@@ -52,6 +52,7 @@ export {
   dropLead,
   listLeads,
   countLeads,
+  requalifyJurisdictionDrops,
   type NewLead,
   type LeadListItem,
 } from './leads';

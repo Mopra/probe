@@ -484,19 +484,19 @@ commit to one. This writes nothing and creates no lead:
 pnpm --filter @probe/worker cli smoke https://some-product.com --check
 ```
 
-Most products come back `unknown`, which is blocked. Measured on a sample of
-launch-shaped sites, roughly one in five passes: RDAP usually has no country,
-and a site that mentions two countries in its own text is read as "we do not
-know" rather than as either of them. `neon.tech`, `resend.com` and `axiom.co`
-passed when this was written, and they make honest rehearsal targets.
+Under the blocklist almost everything passes, `unknown` included, so this is now
+a quick sanity check rather than a hunt. It still earns its place: a German or
+Danish product is refused, and finding that out without creating a lead is the
+difference between picking another target and burning a domain.
 
-Five things about the target are worth knowing before you pick one:
+Four things about the target are worth knowing before you pick one:
 
-- **It cannot be Danish, or ours.** `allowed_countries` is `US`, and the loader
-  refuses to start if `DK` is ever added, so there is no way to rehearse against
-  our own sites. Pick a US product.
-- **Unknown counts as blocked.** A domain whose country cannot be established
-  stops at the gate, which is the gate working. `example.com` does exactly this.
+- **It cannot be Danish or German, and it cannot be ours.** `blocked_countries`
+  is `["DK", "DE"]`, and the loader refuses to start if `DK` ever leaves it, so
+  there is no way to rehearse against our own sites. `optipeople.com` reads
+  Denmark off its own imprint and stops there.
+- **Unknown now passes.** A domain whose country cannot be established is
+  contactable under the blocklist, which is most of them.
 - **The generator has to find something.** No proof, no email (§3.1 rule 1). A
   clean site ends the rehearsal at `no_proof` and that is a pass, not a failure:
   it is the rule that stops probe emailing people about nothing.
@@ -504,9 +504,8 @@ Five things about the target are worth knowing before you pick one:
   overwritten. A second rehearsal wants a different product, and it is why
   `--check` exists: hunting for a target with the real command burns a domain
   per attempt, including domains that might launch something worth writing
-  about later.
-- **Our own sites cannot be used.** `optipeople.com` reads Denmark off its own
-  imprint and stops there, which is the gate working.
+  about later. `cli requalify` brings back only leads the jurisdiction rule
+  dropped, and only when that rule has since changed.
 
 Afterwards, release your own address:
 
@@ -516,6 +515,37 @@ pnpm --filter @probe/worker cli erase you@example.com --yes
 
 Without that, contact-once refuses the next rehearsal to the same inbox, which
 is `sends_email_hash_uniq` doing its job on you rather than on a stranger.
+
+---
+
+## 6.6 Changing the jurisdiction rule
+
+`blocked_countries` in `probe.toml`. Adding a country takes effect on the next
+resolve and needs nothing else: leads already past the gate are unaffected,
+which is correct, because they were judged under the rule in force when they
+were swept.
+
+Removing one is the case that needs a second step. Every lead the old rule
+dropped carries `drop_reason = 'jurisdiction_blocked'` and status `dropped`, and
+resolve only ever reads `discovered` and `matched`, so those leads are invisible
+forever unless they are brought back:
+
+```bash
+pnpm --filter @probe/worker cli requalify        # what would come back, by country
+pnpm --filter @probe/worker cli requalify --yes  # reset them to 'discovered'
+pnpm --filter @probe/worker cli resolve          # run them through the current rule
+```
+
+`requalify` is the only place `drop_reason` is ever cleared, and it is deliberately
+narrow: only `jurisdiction_blocked`, and only where the current blocklist does
+not block the country that was recorded. A lead dropped as `suppressed`,
+`no_contact` or `contacted_other_campaign` was judged on its own merits and
+stays dropped. A suppression is permanent under rule 2 and nothing in this
+command can touch it.
+
+Note what a widened rule means for leads swept months ago: their contact was
+never resolved, so requalify sends them back through the full cascade, and their
+jurisdiction is guessed again from a site that may since have changed.
 
 ---
 
@@ -603,7 +633,7 @@ overwritten, so the first cause of death is the one you see.
 
 | `drop_reason`              | Meaning                                       |
 |----------------------------|-----------------------------------------------|
-| `jurisdiction_blocked`     | Country not on the allowlist, or unknown      |
+| `jurisdiction_blocked`     | Country is on the blocklist                   |
 | `no_match`                 | Fits no campaign                              |
 | `suppressed`               | Address already opted out                     |
 | `contacted_other_campaign` | Address already received a probe email        |
@@ -650,9 +680,8 @@ Listed here so nobody "fixes" them.
   not once at boot.
 - **The worker refuses to boot live with a broken send configuration.** A
   localhost base url or a missing webhook secret is a failed unit, not a warning.
-- **Unknown jurisdiction is blocked.** Misclassifying a German or Danish founder
-  as American is the expensive error, so the gate is deliberately pessimistic.
-- **`DK` on the allowlist refuses to start the process.** Not a warning.
+- **`DK` missing from the blocklist refuses to start the process.** Not a
+  warning. Denmark is not a configuration option.
 - **The copy lint blocks approval**, including on a placeholder postal address.
   A generator tweak that quietly turns informative into salesy is exactly what
   it exists to catch.

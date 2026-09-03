@@ -30,7 +30,7 @@ const CountrySchema = z
   .trim()
   .transform((c) => c.toUpperCase())
   .refine((c) => /^[A-Z]{2}$/.test(c), {
-    message: 'allowed_countries entries must be ISO 3166-1 alpha-2 codes',
+    message: 'blocked_countries entries must be ISO 3166-1 alpha-2 codes',
   });
 
 /**
@@ -92,7 +92,9 @@ export const GlobalSchema = z.object({
   send_window: SendWindowSchema.default(['09:00', '16:00']),
   gap_floor_minutes: z.number().int().min(1).default(4),
   gap_jitter: z.number().min(0).max(1).default(0.4),
-  allowed_countries: z.array(CountrySchema).default(['US']),
+  // §9.1. A blocklist, not an allowlist: everything not named here is
+  // contactable, INCLUDING a lead whose country could not be established.
+  blocked_countries: z.array(CountrySchema).default(['DK', 'DE']),
   postal_address: PostalAddressSchema,
   public_base_url: BaseUrlSchema.default('http://localhost:3000'),
   generator_concurrency: z.number().int().min(1).default(3),

@@ -12,7 +12,7 @@ import {
   countryFromLocationString,
   countryFromText,
   hashEmail,
-  isAllowedJurisdiction,
+  isBlockedJurisdiction,
   matchLead,
   normalizeDomain,
   normalizeEmail,
@@ -61,7 +61,7 @@ const JURISDICTION_PATHS = ['/imprint', '/legal', '/contact'];
 interface Context {
   campaigns: CampaignRow[];
   candidates: MatchCandidate[];
-  allowedCountries: string[];
+  blockedCountries: string[];
   pepper: string;
   summary: ResolveSummary;
   /** `cli smoke` only. Stands in for step 4, the cascade, and nothing else:
@@ -134,11 +134,13 @@ async function processLead(lead: LeadRow, ctx: Context): Promise<void> {
   };
 
   // 1. Jurisdiction, before anything else is spent. Recorded either way
-  //    (§8.2), then gated. Unknown is blocked, never benefit of the doubt.
+  //    (§8.2), then gated against the blocklist. A country we could not
+  //    establish passes: unknown is contactable now, which is the trade the
+  //    blocklist makes and the reason the recorded value still matters.
   const { guess, detail } = await guessJurisdiction(lead, hnHandle);
   await setLeadJurisdiction(lead.id, { country: guess.country, source: guess.source, detail });
 
-  if (!isAllowedJurisdiction(guess.country, ctx.allowedCountries)) {
+  if (isBlockedJurisdiction(guess.country, ctx.blockedCountries)) {
     await dropLead(lead.id, 'jurisdiction_blocked');
     ctx.summary.jurisdiction_blocked += 1;
     leadLog.info('jurisdiction blocked', { country: guess.country, source: guess.source });
@@ -298,7 +300,7 @@ export async function runResolve(): Promise<ResolveSummary> {
       excludeTags: c.exclude_tags,
       excludeKeywords: c.exclude_keywords,
     })),
-    allowedCountries: config.global.allowed_countries,
+    blockedCountries: config.global.blocked_countries,
     pepper: env.PROBE_HASH_PEPPER,
     summary,
   };
@@ -372,7 +374,7 @@ export async function resolveOneLead(
       excludeTags: c.exclude_tags,
       excludeKeywords: c.exclude_keywords,
     })),
-    allowedCountries: config.global.allowed_countries,
+    blockedCountries: config.global.blocked_countries,
     pepper: env.PROBE_HASH_PEPPER,
     summary,
     contactOverride: contact,
@@ -428,6 +430,6 @@ export async function checkJurisdiction(url: string): Promise<{
     country: guess.country,
     source: guess.source,
     detail,
-    allowed: isAllowedJurisdiction(guess.country, config.global.allowed_countries),
+    allowed: !isBlockedJurisdiction(guess.country, config.global.blocked_countries),
   };
 }

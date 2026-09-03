@@ -33,7 +33,7 @@ export interface GlobalConfig {
   send_window: [string, string];    // ['09:00', '16:00'], local to timezone
   gap_floor_minutes: number;
   gap_jitter: number;               // 0..1
-  allowed_countries: string[];      // ISO 3166-1 alpha-2, upper case
+  blocked_countries: string[];      // ISO 3166-1 alpha-2, upper case. Blocklist
   postal_address: string;
   public_base_url: string;          // no trailing slash
   generator_concurrency: number;
@@ -67,7 +67,7 @@ export interface ProbeConfig {
 export class ConfigError extends Error {}
 
 /** Reads probe.toml, validates with zod, applies defaults.
- *  Throws ConfigError if 'DK' appears in allowed_countries (§9.1), if the
+ *  Throws ConfigError if 'DK' is absent from blocked_countries (§9.1), if the
  *  window is malformed, or if any campaign is incomplete.
  *  Searches upward from cwd for probe.toml when no path is given. Cached. */
 export function loadConfig(opts?: { path?: string; cwd?: string }): ProbeConfig;
@@ -357,8 +357,8 @@ export function countryFromLocationString(location: string): string | null;
  *  source that produced it. */
 export function resolveJurisdiction(guesses: JurisdictionGuess[]): JurisdictionGuess;
 
-/** THE GATE. Unknown (null) is blocked, never benefit of the doubt. */
-export function isAllowedJurisdiction(country: string | null, allowed: string[]): boolean;
+/** THE GATE. A blocklist: unknown (null) is NOT blocked. */
+export function isBlockedJurisdiction(country: string | null, blocked: string[]): boolean;
 ```
 
 ### match.ts  (§8.2)

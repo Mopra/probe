@@ -661,16 +661,24 @@ export function resolveJurisdiction(guesses: JurisdictionGuess[]): JurisdictionG
 }
 
 /**
- * THE GATE (9.1). Unknown is blocked, never benefit of the doubt, because
- * misclassifying a German or Danish founder as American is the expensive
- * error. Denmark is never allowlisted; the config loader refuses to start if
- * 'DK' appears in the list, and this function would happily let it through if
- * it ever did, so that refusal has to stay where it is.
+ * THE GATE (§9.1). A blocklist: a lead is contactable unless its country is
+ * named in `blocked`.
+ *
+ * **Unknown is contactable.** That is the whole difference from the allowlist
+ * this replaced, and it is not a small one: on the first real intake, 60 of 62
+ * leads resolved to no country at all, so unknown is the common case rather
+ * than the edge case, and an unknown lead is as likely to be French or Dutch as
+ * American. The blocklist buys reach and pays for it in exposure, deliberately.
+ *
+ * Denmark is never contactable. The config loader refuses to start if 'DK' is
+ * absent from blocked_countries, and this function would happily let a Danish
+ * lead through if it ever were, so that refusal has to stay where it is.
  */
-export function isAllowedJurisdiction(country: string | null, allowed: string[]): boolean {
+export function isBlockedJurisdiction(country: string | null, blocked: string[]): boolean {
+  // Unknown: nothing to match against, so nothing blocks it.
   if (country === null || country === undefined) return false;
   const c = String(country).trim().toUpperCase();
   if (c.length === 0) return false;
-  if (!Array.isArray(allowed) || allowed.length === 0) return false;
-  return allowed.some((a) => typeof a === 'string' && a.trim().toUpperCase() === c);
+  if (!Array.isArray(blocked) || blocked.length === 0) return false;
+  return blocked.some((b) => typeof b === 'string' && b.trim().toUpperCase() === c);
 }

@@ -12,9 +12,12 @@ send_window   = ["09:00", "16:00"]
 gap_floor_minutes = 4
 gap_jitter    = 0.4
 
-# §9.1 jurisdiction gate. The loader refuses to start if "DK" ever appears here.
-# EU countries are added one at a time, only after legal sign-off.
-allowed_countries = ["US"]
+# §9.1 jurisdiction gate. A BLOCKLIST: every country not named here is
+# contactable, and so is a lead whose country could not be established at all.
+# That last part is the one to remember. On the first real intake, 60 of 62
+# leads resolved to no country, so "unknown" is the ordinary case and it now
+# passes. The loader refuses to start if "DK" is ever removed from this list.
+blocked_countries = ["DK", "DE"]
 
 # CAN-SPAM footer requirement (§9.2.7).
 #

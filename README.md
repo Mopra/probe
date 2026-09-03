@@ -20,8 +20,9 @@ verify in thirty seconds. If no finding can be generated, no email is sent.
    or any reply removes that address from every campaign, forever.
 3. **Nothing sends without explicit approval.** Campaigns are born paused.
 4. **Dry-run is the default.** `PROBE_SEND_ENABLED` must be exactly `true`.
-5. **No sends outside allowlisted jurisdictions.** Unknown counts as blocked,
-   and the loader refuses to start if `DK` is on the allowlist.
+5. **No sends into blocklisted jurisdictions.** `DK` and `DE` today. Everything
+   else is contactable, including a lead whose country could not be established,
+   and the loader refuses to start if `DK` ever leaves the blocklist.
 
 Two database indexes carry most of the safety: `sends_email_hash_uniq` makes
 contact-once a constraint violation rather than a race condition, and

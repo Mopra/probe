@@ -4,7 +4,7 @@ import {
   countryFromDomain,
   countryFromLocationString,
   countryFromText,
-  isAllowedJurisdiction,
+  isBlockedJurisdiction,
   resolveJurisdiction,
 } from './jurisdiction';
 
@@ -210,29 +210,30 @@ describe('resolveJurisdiction', () => {
   });
 });
 
-describe('isAllowedJurisdiction, THE GATE', () => {
-  const allowed = ['US'];
+describe('isBlockedJurisdiction, THE GATE', () => {
+  const blocked = ['DK', 'DE'];
 
-  it('allows an allowlisted country', () => {
-    expect(isAllowedJurisdiction('US', allowed)).toBe(true);
-    expect(isAllowedJurisdiction('us', allowed)).toBe(true);
-    expect(isAllowedJurisdiction(' Us ', allowed)).toBe(true);
+  it('blocks a blocklisted country, however it is cased or spaced', () => {
+    expect(isBlockedJurisdiction('DK', blocked)).toBe(true);
+    expect(isBlockedJurisdiction('dk', blocked)).toBe(true);
+    expect(isBlockedJurisdiction(' De ', blocked)).toBe(true);
   });
 
-  it('blocks unknown, never benefit of the doubt', () => {
-    expect(isAllowedJurisdiction(null, allowed)).toBe(false);
-    expect(isAllowedJurisdiction('', allowed)).toBe(false);
-    expect(isAllowedJurisdiction('   ', allowed)).toBe(false);
+  it('ALLOWS unknown. This is the blocklist trade, and it is deliberate', () => {
+    expect(isBlockedJurisdiction(null, blocked)).toBe(false);
+    expect(isBlockedJurisdiction('', blocked)).toBe(false);
+    expect(isBlockedJurisdiction('   ', blocked)).toBe(false);
   });
 
-  it('blocks Denmark and Germany on the launch allowlist', () => {
-    expect(isAllowedJurisdiction('DK', allowed)).toBe(false);
-    expect(isAllowedJurisdiction('DE', allowed)).toBe(false);
-    expect(isAllowedJurisdiction('GB', allowed)).toBe(false);
+  it('allows every country not named, EU included', () => {
+    expect(isBlockedJurisdiction('US', blocked)).toBe(false);
+    expect(isBlockedJurisdiction('GB', blocked)).toBe(false);
+    expect(isBlockedJurisdiction('FR', blocked)).toBe(false);
   });
 
-  it('blocks everything when the allowlist is empty', () => {
-    expect(isAllowedJurisdiction('US', [])).toBe(false);
+  it('allows everything when the blocklist is empty', () => {
+    // The loader refuses to start in this state, since DK must be present.
+    expect(isBlockedJurisdiction('DK', [])).toBe(false);
   });
 
   it('gates a Danish domain end to end', () => {
@@ -240,24 +241,24 @@ describe('isAllowedJurisdiction, THE GATE', () => {
       { country: countryFromDomain('meterbase.dk'), source: 'tld' },
     ]);
     expect(guess).toEqual({ country: 'DK', source: 'tld' });
-    expect(isAllowedJurisdiction(guess.country, allowed)).toBe(false);
+    expect(isBlockedJurisdiction(guess.country, blocked)).toBe(true);
   });
 
-  it('gates a .com with no other signal as unknown, and therefore blocked', () => {
+  it('lets a .com with no signal at all through as unknown', () => {
     const guess = resolveJurisdiction([
       { country: countryFromDomain('meterbase.com'), source: 'tld' },
       { country: countryFromText('Usage-based billing for API companies'), source: 'html' },
     ]);
     expect(guess).toEqual({ country: null, source: 'none' });
-    expect(isAllowedJurisdiction(guess.country, allowed)).toBe(false);
+    expect(isBlockedJurisdiction(guess.country, blocked)).toBe(false);
   });
 
-  it('lets a .com through once an HN profile resolves it to the US', () => {
+  it('blocks a .com once an HN profile resolves it to Germany', () => {
     const guess = resolveJurisdiction([
       { country: countryFromDomain('meterbase.com'), source: 'tld' },
-      { country: countryFromLocationString('San Francisco, CA'), source: 'hn_profile' },
+      { country: countryFromLocationString('Berlin, Germany'), source: 'hn_profile' },
     ]);
-    expect(guess).toEqual({ country: 'US', source: 'hn_profile' });
-    expect(isAllowedJurisdiction(guess.country, allowed)).toBe(true);
+    expect(guess).toEqual({ country: 'DE', source: 'hn_profile' });
+    expect(isBlockedJurisdiction(guess.country, blocked)).toBe(true);
   });
 });
