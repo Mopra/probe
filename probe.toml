@@ -29,7 +29,15 @@ blocked_countries = ["DK", "DE"]
 # address from a fake one, so it rejects anything with angle brackets, anything
 # with no street number or postcode, and anything carrying template vocabulary.
 # A real address passes; nothing else does.
-postal_address = "Pradsgaard Labs, Bogfinkevej 2, 7400 Herning, Denmark"
+#
+# The company name is not required here and has been dropped: CAN-SPAM asks for
+# a valid physical postal address, not a legal entity. The street cannot go the
+# same way. An email with no deliverable address is a per-message violation, and
+# the lint below refuses to approve one, which is the whole reason the rule
+# exists. If the home address is the problem rather than the company name, the
+# fix is a different address that is still real: a virtual office or a PO box,
+# which is a few hundred kroner a year and changes one line in this file.
+postal_address = "exit1.dev, Bogfinkevej 2, 7400 Herning, Denmark"
 
 # Public base URL of apps/web. Unsubscribe, click and data-notice links.
 public_base_url = "https://probe.exit1.dev"
