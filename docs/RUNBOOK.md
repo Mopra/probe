@@ -14,7 +14,7 @@ Only one item has a lead time measured in days, so start it first.
 
 1. **Book the legal hour.** §9.4. Four concrete questions, not an open-ended
    worry. This is the only hard prerequisite you cannot do yourself.
-2. Supabase project, schema applied, config seeded.
+2. Postgres (currently Neon), schema applied, config seeded.
 3. Day3 account, sending domain verified, API key, webhook endpoint.
 4. SES inbound receipt rule for replies, in the Day3 AWS account.
 5. Vercel project for `apps/web`, Cloudflare Access in front of it.
@@ -166,9 +166,12 @@ SECRET=$(grep ^PROBE_HMAC_SECRET= .env | cut -d= -f2-)
 BODY='{"lead_id":"smoke","product":{"name":"Example","url":"https://example.com","description":null,"source":"manual","launched_at":null,"tags":[]},"recipient":{"first_name":null}}'
 TS=$(date +%s)
 SIG="sha256=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$SECRET" -hex | sed 's/^.*=[ ]*//')"
-curl -sS -w '
-%{http_code}
-' -X POST   https://europe-west1-exit1-dev.cloudfunctions.net/probeGenerate   -H 'content-type: application/json' -H "x-probe-timestamp: $TS"   -H "x-probe-signature: $SIG" --data "$BODY"
+curl -sS -w '\nHTTP %{http_code}\n' -X POST \
+  https://europe-west1-exit1-dev.cloudfunctions.net/probeGenerate \
+  -H 'content-type: application/json' \
+  -H "x-probe-timestamp: $TS" \
+  -H "x-probe-signature: $SIG" \
+  --data "$BODY"
 ```
 
 **204 is the success case**: the signature verified and example.com is clean. 401
