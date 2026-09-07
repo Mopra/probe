@@ -1128,6 +1128,10 @@ generator output for two weeks without a single real send.
 
 ## 14. Future add-on: public reply channel
 
+`docs/CHANNELS.md` is the worked-out version of this section, with the drop-rate
+numbers that reorder it and the channels considered and rejected. This section
+remains the specification; that file is the thinking behind it.
+
 The same finding, delivered as a public comment where the launch happened,
 instead of as an email. For `show_hn` leads that means a reply in the Show HN
 thread: "I pointed our probe suite at your site this morning and found your

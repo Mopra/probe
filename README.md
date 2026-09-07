@@ -63,7 +63,8 @@ probe/
 ├── PLAN.md         the specification
 └── docs/
     ├── CONTRACTS.md  cross-package API
-    └── RUNBOOK.md    Day3, DNS, deploy, going live, and what to do when it misbehaves
+    ├── RUNBOOK.md    Day3, DNS, deploy, going live, and what to do when it misbehaves
+    └── CHANNELS.md   ideas for delivering a finding somewhere other than an inbox
 ```
 
 **probe holds no AWS credentials.** It sends through Day3's transactional API
