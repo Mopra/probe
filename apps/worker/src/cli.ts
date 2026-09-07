@@ -397,6 +397,7 @@ async function main(): Promise<number> {
       console.log(
         `considered ${summary.considered}  approved ${summary.approved}  ` +
           `lint failed ${summary.lint_failed}  suppressed ${summary.suppressed}  ` +
+          `undeliverable ${summary.undeliverable}  dns unresolved ${summary.dns_unresolved}  ` +
           `already contacted ${summary.contacted_other_campaign}  ` +
           `no capacity ${summary.no_capacity}  failed ${summary.failed}`,
       );
@@ -404,6 +405,17 @@ async function main(): Promise<number> {
         console.log('');
         console.log(`  ${summary.lint_failed} proof(s) stayed in /queue because the copy lint`);
         console.log('  refused them. `pnpm dry-run --from-db` shows what it objected to.');
+      }
+      if (summary.undeliverable > 0) {
+        console.log('');
+        console.log(`  ${summary.undeliverable} lead(s) dropped as undeliverable: the contact's`);
+        console.log('  domain has no MX, no A and no AAAA, so it stopped accepting mail between');
+        console.log('  resolve and approval. /leads, filtered by drop reason, lists them.');
+      }
+      if (summary.dns_unresolved > 0) {
+        console.log('');
+        console.log(`  ${summary.dns_unresolved} proof(s) stayed in /queue because DNS would not`);
+        console.log('  answer for the contact domain. Nothing was decided; the next pass asks again.');
       }
       if (summary.no_capacity > 0) {
         console.log('');

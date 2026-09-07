@@ -2,6 +2,7 @@
 // never re-export the same symbol from two places.
 export * from './constants';
 export * from './email';
+export * from './deliverability';
 export * from './url';
 export * from './hmac';
 export * from './generator';

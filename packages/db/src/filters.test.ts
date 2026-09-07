@@ -131,6 +131,7 @@ describe('MATCHED_OR_BEYOND_DROP_REASONS', () => {
       'no_contact',
       'no_proof',
       'generator_failed',
+      'undeliverable',
     ]);
   });
 

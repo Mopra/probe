@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { logger } from '@probe/config';
-import { newToken } from '@probe/core';
+import { checkDeliverability, mailDomainOf, newToken } from '@probe/core';
 import {
   ContactedAlreadyError,
   createSend,
@@ -29,7 +29,8 @@ function back(notice: string, detail?: string): never {
  *   1. the proof must still be in the queue
  *   2. the lint must pass, re-run here rather than trusted from the page (§9.2.8)
  *   3. the address must not have been suppressed since the proof was built
- *   4. sends_email_hash_uniq decides contact-once, not this code (§3.2)
+ *   4. the contact's domain must still accept mail, asked again here
+ *   5. sends_email_hash_uniq decides contact-once, not this code (§3.2)
  */
 export async function approveProof(formData: FormData): Promise<void> {
   const proofId = String(formData.get('proof_id') ?? '');
@@ -57,6 +58,38 @@ export async function approveProof(formData: FormData): Promise<void> {
     revalidatePath('/queue');
     revalidatePath('/');
     back('suppressed', item.lead.name);
+  }
+
+  // Gate 4. The address was accepted on an MX answer taken at resolve time,
+  // which for a proof that has sat in the queue can be weeks old. Asked again
+  // here, uncached, because the whole value of the check is its freshness.
+  const domain = mailDomainOf(item.contact.email_norm ?? item.contact.email);
+  const deliverability = domain ? await checkDeliverability(domain) : 'undeliverable';
+
+  if (deliverability === 'undeliverable') {
+    // No MX, no A, no AAAA. That domain is not coming back, so the lead dies
+    // here instead of waiting in the queue for an answer that will not change.
+    await dropLead(item.lead.id, 'undeliverable');
+    log.warn('approval refused, domain no longer accepts mail', {
+      proof_id: proofId,
+      lead: item.lead.domain,
+      domain,
+    });
+    revalidatePath('/queue');
+    revalidatePath('/');
+    revalidatePath('/leads');
+    back('undeliverable', domain ?? item.lead.domain);
+  }
+
+  if (deliverability === 'unknown') {
+    // The resolver did not answer. That is not evidence of anything, so the
+    // proof stays exactly where it is and the operator can try again.
+    log.warn('approval deferred, DNS did not answer for the contact domain', {
+      proof_id: proofId,
+      lead: item.lead.domain,
+      domain,
+    });
+    back('dns_unresolved', domain ?? item.lead.domain);
   }
 
   const config = getConfig();

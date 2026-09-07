@@ -390,6 +390,18 @@ function Notice({
         ? `${detail} was suppressed between generation and approval. Lead dropped as suppressed. Nothing was scheduled.`
         : 'That address is suppressed. Lead dropped, nothing was scheduled.',
     },
+    undeliverable: {
+      tone: 'warn',
+      text: detail
+        ? `${detail} has no MX, no A and no AAAA record, so it stopped accepting mail between resolve and now. Lead dropped as undeliverable. Nothing was scheduled.`
+        : 'That domain no longer accepts mail. Lead dropped as undeliverable, nothing was scheduled.',
+    },
+    dns_unresolved: {
+      tone: 'danger',
+      text: detail
+        ? `DNS would not answer for ${detail}, so deliverability could not be decided either way. Nothing was scheduled and nothing was dropped. Try again in a minute.`
+        : 'DNS would not answer for the contact domain. Nothing was scheduled and nothing was dropped.',
+    },
     contacted: {
       tone: 'warn',
       text: detail

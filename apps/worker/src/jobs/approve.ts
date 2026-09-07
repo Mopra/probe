@@ -13,10 +13,11 @@
 //      than trusted from generation (§9.2.8)
 //   3. the address must not have been suppressed     isSuppressed
 //      since the proof was built
-//   4. contact-once is decided by                    sends_email_hash_uniq
+//   4. the domain must still accept mail             checkDeliverability
+//   5. contact-once is decided by                    sends_email_hash_uniq
 //      the index, not by this code (§3.2)
 //
-// And the four gates it never reaches are untouched: the campaign's paused
+// And the gates it never reaches are untouched: the campaign's paused
 // flag, the warmup cap, the pacing window and PROBE_SEND_ENABLED all live at
 // dispatch, so an approved row is still only a row. The single thing removed
 // is the pair of eyes on the copy, which is why the switch is a line in
@@ -28,7 +29,7 @@
 // queue instead. Nobody is watching the warning, and a proof left alone is
 // picked up by the next pass once warmup or the cap has room.
 
-import { newToken } from '@probe/core';
+import { checkDeliverability, mailDomainOf, newToken } from '@probe/core';
 import {
   ContactedAlreadyError,
   createSend,
@@ -65,6 +66,8 @@ export async function runAutoApprove(options: AutoApproveOptions = {}): Promise<
     approved: 0,
     lint_failed: 0,
     suppressed: 0,
+    undeliverable: 0,
+    dns_unresolved: 0,
     contacted_other_campaign: 0,
     no_capacity: 0,
     failed: 0,
@@ -111,11 +114,13 @@ type ApproveOutcome =
   | 'approved'
   | 'lint_failed'
   | 'suppressed'
+  | 'undeliverable'
+  | 'dns_unresolved'
   | 'contacted_other_campaign'
   | 'no_capacity';
 
 /**
- * One proof, through the same four gates as §8.5, in the same order.
+ * One proof, through the same five gates as §8.5, in the same order.
  *
  * The tokens are minted once and used for both the lint and the send row, so
  * the message the lint passed is the message the row will render.
@@ -157,6 +162,37 @@ async function approveOne(
       lead: lead.domain,
     });
     return 'suppressed';
+  }
+
+  // §8.5 gate 4. The MX answer this address was accepted on was taken at
+  // resolve time, which can be weeks ago for a proof that sat in the queue.
+  // Uncached on purpose: `hasMailExchanger` in the contact cascade keeps a
+  // per-run cache, and a cached answer is exactly what this gate exists to
+  // avoid.
+  const domain = mailDomainOf(contact.email_norm ?? contact.email);
+  const deliverability = domain ? await checkDeliverability(domain) : 'undeliverable';
+
+  if (deliverability === 'undeliverable') {
+    // A domain with no MX, no A and no AAAA is not coming back, so the lead
+    // dies here rather than being retried every pass forever. §8.2 counts it.
+    await dropLead(lead.id, 'undeliverable');
+    log.warn('auto-approval refused, domain no longer accepts mail', {
+      proof_id: proof.id,
+      lead: lead.domain,
+      domain,
+    });
+    return 'undeliverable';
+  }
+
+  if (deliverability === 'unknown') {
+    // The resolver did not answer, which is not evidence of anything. Left in
+    // the queue, like a lint failure, and tried again next pass.
+    log.warn('auto-approval deferred, DNS did not answer for the contact domain', {
+      proof_id: proof.id,
+      lead: lead.domain,
+      domain,
+    });
+    return 'dns_unresolved';
   }
 
   const plan = await planSlot({ campaign, now: ctx.now, global: ctx.global });

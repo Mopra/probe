@@ -141,6 +141,46 @@ export function isRoleAddress(emailNorm: string): boolean;
 export function isDisposableOrJunk(emailNorm: string): boolean;
 ```
 
+### deliverability.ts  (§8.3, §8.5)
+
+MX only. SMTP `RCPT TO` is forbidden by §8.3 and this module is not the place
+to reconsider it. Uncached by design: the caller owns caching, because the
+contact cascade wants one answer per run and the approval gate exists to ask
+again.
+
+```ts
+export type DnsAnswer = 'records' | 'empty' | 'error';
+export interface DomainDns { mx: DnsAnswer; a: DnsAnswer; aaaa: DnsAnswer }
+export type Deliverability = 'deliverable' | 'undeliverable' | 'unknown';
+
+/** node:dns's promises API satisfies this. Only the record count is read. */
+export interface DnsResolver {
+  resolveMx(domain: string): Promise<unknown[]>;
+  resolve4(domain: string): Promise<unknown[]>;
+  resolve6(domain: string): Promise<unknown[]>;
+}
+
+/** Pure. MX wins; A/AAAA counts (RFC 5321 §5.1 implicit MX); any unanswered
+ *  lookup with nothing positive found is `unknown`, never `undeliverable`. */
+export function decideDeliverability(dns: DomainDns): Deliverability;
+
+/** All three lookups at once. NXDOMAIN and NODATA are `empty`; every other
+ *  resolver failure is `error`, meaning the question was never answered. */
+export function lookupDomainDns(domain: string, resolver?: DnsResolver): Promise<DomainDns>;
+
+/** The whole check. Syntactically hopeless domains are refused with no lookup. */
+export function checkDeliverability(domain: string, resolver?: DnsResolver): Promise<Deliverability>;
+
+/** Host part of an already normalised address, or null. Copes with the null
+ *  `email`/`email_norm` a suppression scrub leaves behind (§9.3). */
+export function mailDomainOf(emailNorm: string | null | undefined): string | null;
+```
+
+**`unknown` is not a soft `undeliverable`.** A caller that collapses the two
+will drop live leads on a resolver hiccup. §8.3 declines the address and moves
+on; §8.5 leaves the proof in the queue and asks again next pass. Neither
+records a `drop_reason`.
+
 ### url.ts
 
 ```ts
@@ -463,8 +503,9 @@ export function parseSesMessage(message: string): SesEvent;
 ```ts
 export const SEVERITY_MAILABLE = 1;
 export type DropReason =
-  | 'jurisdiction_blocked' | 'no_match' | 'suppressed'
-  | 'contacted_other_campaign' | 'no_contact' | 'no_proof' | 'generator_failed';
+  | 'platform_domain' | 'jurisdiction_blocked' | 'no_match' | 'suppressed'
+  | 'contacted_other_campaign' | 'no_contact' | 'no_proof' | 'generator_failed'
+  | 'undeliverable';
 export const DROP_REASONS: DropReason[];
 export const DROP_REASON_LABELS: Record<DropReason, string>;
 ```

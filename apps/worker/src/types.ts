@@ -86,6 +86,10 @@ export interface ApproveSummary {
   approved: number;
   lint_failed: number;
   suppressed: number;
+  /** Dropped: the contact's domain has no MX, no A and no AAAA (§8.5). */
+  undeliverable: number;
+  /** Left in the queue: DNS would not answer, so nothing was decided. */
+  dns_unresolved: number;
   contacted_other_campaign: number;
   /** Left in the queue: no day inside the horizon had capacity (§5.4). */
   no_capacity: number;

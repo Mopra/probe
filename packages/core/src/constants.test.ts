@@ -18,6 +18,7 @@ describe('constants', () => {
       'no_contact',
       'no_proof',
       'generator_failed',
+      'undeliverable',
     ]);
   });
 

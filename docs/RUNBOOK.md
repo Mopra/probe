@@ -716,6 +716,21 @@ If bounces are rising, the contact cascade is producing bad addresses: check
 `/leads` filtered by the method that found them. If complaints are rising, the
 copy or the targeting is wrong, and no amount of pacing fixes that.
 
+Before blaming the cascade, look at the `undeliverable` count on `/health`.
+Approval re-checks the contact domain's MX (§8.5 gate 4) and drops the lead if
+the domain has stopped accepting mail, so a rising `undeliverable` count and a
+flat bounce rate means that gate is doing its job and the queue is simply
+holding proofs for a long time. A rising bounce rate with `undeliverable` at
+zero is different, and points at live domains with dead mailboxes, which is the
+one thing no pre-send check can catch: §8.3 forbids `RCPT TO`, so those are
+found by bouncing once and then suppressed forever.
+
+`dns unresolved` in the `cli approve` output is neither of those. It means DNS
+would not answer, nothing was decided, and the next pass will ask again. A
+number that stays high across several passes is a resolver problem on the VPS,
+not a lead-quality problem: check `resolvectl status` before touching anything
+in probe.
+
 ### The generator is failing
 
 `/health` shows the outcome breakdown. Distinguish the three cases before

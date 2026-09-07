@@ -27,7 +27,8 @@ launched. If nothing can be measured, no email is sent.
    `auto_approve` in `probe.toml`: false and a human clicks Approve in `/queue`,
    true and the worker does it on a schedule. The gate itself never moves. An
    approval, by either hand, still has to pass the copy lint, still re-checks
-   suppression, and is still refused by contact-once.
+   suppression, still re-checks that the contact's domain accepts mail, and is
+   still refused by contact-once.
 4. **Dry-run is the default.** `PROBE_SEND_ENABLED` must be exactly `true`.
 5. **No sends into blocklisted jurisdictions.** `DK` and `DE` today. Everything
    else is contactable, including a lead whose country could not be established,

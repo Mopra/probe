@@ -674,6 +674,7 @@ resolved or any generator call is spent. Tiebreak, in order:
 | `no_contact`               | Cascade found nothing                        |
 | `no_proof`                 | Generator returned 204                       |
 | `generator_failed`         | 3 failed attempts or 2 hours pending (§6)    |
+| `undeliverable`            | Contact domain stopped accepting mail (§8.5) |
 
 `contacted_other_campaign` is the one to watch. After a month, count it as a
 share of matched leads. Below ~5% the §3.2 policy is free and stays. Above ~25%
@@ -696,6 +697,20 @@ MX record check only. Do not run SMTP `RCPT TO` verification: catch-all
 configurations make it unreliable and the probing itself can hurt reputation.
 Accept the address, monitor the hard bounce rate, suppress on bounce.
 
+The check is three-way, not a boolean, and the third value is the one that
+matters. An MX record, or an A/AAAA record under the implicit MX rule of RFC
+5321 §5.1, is `deliverable`. NXDOMAIN or NODATA on all three is
+`undeliverable`. A resolver that timed out or refused is `unknown`, which is
+not evidence of anything and must never be recorded as a drop. Here in the
+cascade `unknown` declines the address, because spending a generator call on a
+domain we could not look up is not worth the call; the address comes back
+around on a later pass. At approval the same verdict means something different,
+and §8.5 says what.
+
+The verdict itself lives in `@probe/core` so the cascade and the approval gate
+cannot drift apart. The per-run cache does not: it belongs to this pass, and
+§8.5 deliberately does not read it.
+
 Check `suppressions` **before** step 1. Never spend a generator call, or a paid
 lookup, on someone already suppressed.
 
@@ -713,10 +728,44 @@ exit1's probe infrastructure isn't hammered by its own outreach tool.
 ### 8.5 Approve
 
 Nothing is scheduled until it is approved. Approval re-runs the copy lint
-(§9.2), re-checks suppression, and writes the `sends` row with `scheduled_for`
-computed from the pacing schedule; a failing email cannot be approved, and
-contact-once is decided by `sends_email_hash_uniq` on the insert rather than by
-a pre-check.
+(§9.2), re-checks suppression, re-checks that the contact's domain still accepts
+mail, and writes the `sends` row with `scheduled_for` computed from the pacing
+schedule; a failing email cannot be approved, and contact-once is decided by
+`sends_email_hash_uniq` on the insert rather than by a pre-check.
+
+**Five gates, in this order.** Each one can refuse, and what refusing costs is
+different in each case:
+
+| | Gate | On refusal |
+|-|------|------------|
+| 1 | The proof is still in the queue | nothing happens |
+| 2 | The copy lint passes (§9.2.8) | proof stays queued |
+| 3 | The address is not suppressed (§3.1) | lead dropped `suppressed` |
+| 4 | The contact domain still accepts mail (§8.3) | see below |
+| 5 | `sends_email_hash_uniq` accepts the insert (§3.2) | lead dropped `contacted_other_campaign` |
+
+Gate 4 exists because gate 3's evidence is fresh and its own is not. The MX
+answer that let this address into the pipeline was taken at resolve time, which
+for a proof that has waited in the queue can be weeks ago, and a domain that
+has since expired is a hard bounce against a reputation that cannot afford
+many (§5.5). So it is asked again, and deliberately **uncached**: the cascade's
+per-run cache in §8.3 is the one answer this gate is not allowed to accept.
+
+It splits on the three-way verdict:
+
+- `undeliverable`, meaning no MX, no A and no AAAA: the lead is dropped as
+  `undeliverable`. That domain is not coming back, so leaving the proof queued
+  would be a slow leak of work nobody will ever finish.
+- `unknown`, meaning DNS would not answer: **nothing is decided.** The proof
+  stays in the queue and the next pass asks again. A resolver timeout is not
+  grounds for spending a lead's one and only `drop_reason`, and this is the
+  case the gate is written around.
+
+What gate 4 cannot do is tell you a mailbox exists. §8.3 forbids the only check
+that could, for reasons that still hold, so the remaining defence against a
+dead mailbox on a live domain is unchanged: one email per person, a hard bounce
+suppresses globally and permanently, and §5.5 pauses the campaign if the
+rolling rate says so.
 
 **Who approves is configuration.** `auto_approve` in probe.toml, false by
 default:
@@ -727,9 +776,10 @@ default:
   off each generate tick from 06:00 to 23:00, capped per pass. Also runnable as
   `cli approve`.
 
-The two paths share the slot planner (`planSendSlot` in `@probe/core`) so they
-cannot disagree about which day a send lands on, and they run the same four
-gates in the same order. They differ in one thing: when no day inside the
+The two paths share the slot planner (`planSendSlot` in `@probe/core`) and the
+deliverability verdict (`checkDeliverability`, also in `@probe/core`) so they
+cannot disagree about which day a send lands on or whether a domain still takes
+mail, and they run the same five gates in the same order. They differ in one thing: when no day inside the
 horizon has capacity, the human path writes the row at the fallback slot and
 warns, because a person asked for it, and the automatic path leaves the proof in
 the queue and tries again next pass, because nobody is reading the warning.

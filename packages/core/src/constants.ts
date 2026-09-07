@@ -24,7 +24,8 @@ export type DropReason =
   | 'contacted_other_campaign'
   | 'no_contact'
   | 'no_proof'
-  | 'generator_failed';
+  | 'generator_failed'
+  | 'undeliverable';
 
 /** Stable order, used for the /health breakdown table. */
 export const DROP_REASONS: DropReason[] = [
@@ -36,6 +37,7 @@ export const DROP_REASONS: DropReason[] = [
   'no_contact',
   'no_proof',
   'generator_failed',
+  'undeliverable',
 ];
 
 /** Labels taken verbatim from the §8.2 drop accounting table. */
@@ -48,4 +50,5 @@ export const DROP_REASON_LABELS: Record<DropReason, string> = {
   no_contact: 'Cascade found nothing',
   no_proof: 'Generator returned 204',
   generator_failed: '3 failed attempts or 2 hours pending',
+  undeliverable: 'Domain stopped accepting mail before approval',
 };
