@@ -41,6 +41,8 @@ export interface GlobalConfig {
   generator_budget_ms: number;
   generator_max_attempts: number;
   generator_min_severity: number;
+  auto_approve: boolean;            // §8.5. False by default: the worker only
+                                    // approves for itself when this is true
   complaint_rate_threshold: number;
   bounce_rate_threshold: number;
   rate_window_days: number;
@@ -332,6 +334,29 @@ export function scheduleSlots(args: {
   from: Date; end: Date; count: number; gapFloorMinutes: number;
   jitter: number; rng?: () => number;
 }): Date[];
+
+export interface SlotPlan {
+  scheduledFor: Date; cap: number; queuedInWindow: number;
+  sentToday: number; overCapacity: boolean;
+}
+
+/** scheduled_for for a newly approved send (§8.5). Walks forward day by day,
+ *  skipping non-send days, to the first window whose warmup cap has room, then
+ *  takes the next free slot in it. Pure: `queuedAt` and `sentToday` are the
+ *  caller's two database reads. Both approval paths call this, the human one in
+ *  apps/web and the automatic one in apps/worker, so they cannot disagree about
+ *  which day a send lands on.
+ *
+ *  `overCapacity` means no day in the horizon had room, usually because warmup
+ *  has not started. It is a report, not a refusal: /queue writes the row at the
+ *  fallback slot and warns, auto-approval leaves the proof queued. */
+export function planSendSlot(args: {
+  now: Date; timezone: string; sendDays: string[]; window: [string, string];
+  gapFloorMinutes: number; jitter: number;
+  warmupStart: Date | string | null; campaignDailyCap: number;
+  queuedAt: number[]; sentToday: number;
+  horizonDays?: number; rng?: () => number;
+}): SlotPlan;
 ```
 
 ### jurisdiction.ts  (§8.2, §9.1)

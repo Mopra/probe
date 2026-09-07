@@ -11,6 +11,7 @@ import { runSeed } from './jobs/seed';
 import { runSweep } from './jobs/sweep';
 import { runResolve } from './jobs/resolve';
 import { runGenerate } from './jobs/generate';
+import { runAutoApprove } from './jobs/approve';
 import { runAutoPause } from './jobs/autopause';
 import { runSendDaemon, type SendDaemonHandle } from './jobs/send';
 import { sendEnabled } from './send/runtime';
@@ -56,6 +57,8 @@ function banner(): void {
     campaigns: cfg.campaigns.map((c) => c.slug),
     blocked_countries: cfg.global.blocked_countries,
     send_days: cfg.global.send_days,
+    // §8.5. Whether anything reaches the send queue without a human reading it.
+    auto_approve: cfg.global.auto_approve,
     send_window: cfg.global.send_window,
     timezone: cfg.global.timezone,
     // Logged because it is the field whose wrongness is invisible in the
@@ -134,6 +137,22 @@ export async function main(): Promise<void> {
   // unattended and every proof in it was marked failed the next morning. The
   // budget is a limit on the generator, not on the operator's working hours.
   every('*/10 6-23 * * *', 'generate-repoll', runGenerate);
+
+  // §8.5. Only does anything when auto_approve is true in probe.toml; the job
+  // reads the flag itself rather than being conditionally scheduled, so the
+  // answer to "is this running" is one line in the config and not a boot-time
+  // branch nobody can see afterwards.
+  //
+  // Offset five minutes off the generate ticks so a pass reads proofs that the
+  // generate run before it finished writing, rather than racing it for the
+  // same rows. runExclusive only serialises a job against itself.
+  if (cfg.global.auto_approve) {
+    log.warn('AUTO-APPROVE IS ON: ready proofs become scheduled sends with no human read', {
+      note: 'probe.toml [global] auto_approve. Pausing, warmup and PROBE_SEND_ENABLED still gate dispatch',
+    });
+  }
+  every('5-55/10 6-23 * * *', 'approve', runAutoApprove);
+
   every('0 * * * *', 'autopause', runAutoPause);
 
   const daemon: SendDaemonHandle = await runSendDaemon();

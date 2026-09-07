@@ -331,6 +331,7 @@ pnpm --filter @probe/worker cli preflight   # check everything before going live
 pnpm --filter @probe/worker cli sweep
 pnpm --filter @probe/worker cli resolve
 pnpm --filter @probe/worker cli generate
+pnpm --filter @probe/worker cli approve     # §8.5, needs auto_approve or --yes
 pnpm --filter @probe/worker cli send        # ONE send per campaign per run
 pnpm --filter @probe/worker cli health
 ```
@@ -440,6 +441,29 @@ Read every single email before approving it. Watch bounces obsessively.
 Note that `a` in `/queue` approves with no confirmation. On the day you are
 reading every email before approving, that is one keystroke between reading and
 sent.
+
+**Set `auto_approve = false` in `probe.toml` for this step.** These three days
+are the only time anyone reads a whole morning's output end to end, and the
+whole point of them is the pair of eyes. Turn it back on afterwards, once the
+generator's output has been boring for a fortnight.
+
+### Step 8. Auto-approve, when you no longer need the gate
+
+`auto_approve = true` in `probe.toml`, then `systemctl restart probe-worker`.
+The worker approves every ready proof that passes the copy lint, on the `approve`
+schedule, five minutes off each generate tick from 06:00 to 23:00. The boot
+banner logs `auto_approve` and warns separately when it is on, and `/queue`
+carries a banner saying so.
+
+What changes: nothing waits for you. What does not change: the copy lint,
+suppression re-checked at approval and again at dispatch, contact-once, the
+warmup cap, the pause flag and `PROBE_SEND_ENABLED`. A proof that fails the lint
+stays in `/queue` rather than being dropped, and so does one the scheduler could
+find no capacity for, so a non-empty queue under auto-approve is a list of things
+that need you.
+
+`cli approve --yes` runs one pass by hand without turning the schedule on, which
+is the way to clear a backlog you have already read.
 
 ---
 
@@ -780,3 +804,7 @@ Listed here so nobody "fixes" them.
 - **There is no resubscribe path.** Suppression is permanent by design.
 - **`PROBE_HASH_PEPPER` never rotates.**
 - **A stuck send is never re-sent automatically.** Re-approval is a human act.
+- **`auto_approve` defaults to false**, in the schema and not only in the file,
+  so a missing key or an unreadable line is never what decides that strangers
+  get mail nobody read. It removes the human read and nothing else: every
+  mechanical gate below approval still applies.

@@ -3,7 +3,7 @@ import { dashboardStats, listCampaigns } from '@probe/db';
 import type { CampaignRow, DashboardStats } from '@probe/db';
 import { pauseEverything, setPaused, startCampaignWarmup } from './actions';
 import { cn, formatDate, formatInt } from './lib/format';
-import { operatorTimezone, sendEnabled } from './lib/probe';
+import { globalConfig, operatorTimezone, sendEnabled } from './lib/probe';
 import { Button, Chip, Empty, Panel, Stat, TD, TH } from './lib/ui';
 
 export const dynamic = 'force-dynamic';
@@ -18,6 +18,7 @@ export default async function DashboardPage() {
   ]);
 
   const envGate = sendEnabled();
+  const autoApprove = globalConfig()?.auto_approve ?? false;
   const live = stats.campaigns.filter((c) => !c.paused).length;
   const bySlug = new Map<string, CampaignRow>(campaigns.map((c) => [c.slug, c]));
 
@@ -26,7 +27,10 @@ export default async function DashboardPage() {
       <PageHead timezone={timezone} now={now} />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,2fr)]">
-        <Panel title="Awaiting approval" note="nothing schedules itself">
+        <Panel
+          title="Awaiting approval"
+          note={autoApprove ? 'the worker approves these' : 'nothing schedules itself'}
+        >
           <div className="flex flex-col gap-5 py-2">
             <Stat
               label="in the queue right now"
@@ -35,6 +39,16 @@ export default async function DashboardPage() {
               tone={stats.awaiting_approval > 0 ? 'signal' : 'quiet'}
               sub={`${formatInt(stats.proofs_ready)} proofs ready today`}
             />
+            {autoApprove && (
+              // §8.5. A number that used to mean "unread work" now mostly means
+              // "refused by the lint, or waiting for capacity", and the screen
+              // has to say so or it reads as a backlog nobody is clearing.
+              <p className="text-[11px] leading-relaxed text-faint">
+                auto_approve is on, so the worker clears this within ten minutes. What stays
+                is what it refused: a proof failing the copy lint, or one with no capacity
+                inside the horizon.
+              </p>
+            )}
             <a
               href="/queue"
               className="inline-flex w-fit items-center gap-2 border border-signal-dim bg-signal-dim/25 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.14em] text-signal transition-colors hover:bg-signal-dim/45"

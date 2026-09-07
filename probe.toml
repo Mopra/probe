@@ -51,6 +51,21 @@ generator_max_attempts = 3
 # passed, and both are mailed. 2 is pedantic and never mailed on its own.
 generator_min_severity = 1
 
+# §8.5 approval. TRUE means the worker approves ready proofs itself, every ten
+# minutes between 06:00 and 23:00, instead of waiting for someone to read them
+# in /queue. Nothing else about the pipeline changes: an auto-approval still has
+# to pass the copy lint, still re-checks suppression, is still refused by
+# contact-once, and still produces nothing but a `sends` row. Whether that row
+# turns into an email is decided later and elsewhere, by the campaign's paused
+# flag, the warmup cap, the send window and PROBE_SEND_ENABLED.
+#
+# What it does remove is the last human read of an email addressed to a stranger
+# who did not ask to hear from us. The lint checks the footer, the links and the
+# forbidden phrasings; it cannot tell you the finding is wrong about their site.
+# Leave the queue on while a generator is new, and turn this on when its output
+# has been boring for a fortnight.
+auto_approve = true
+
 # §5.5 auto-pause thresholds (half of AWS's)
 complaint_rate_threshold = 0.0005
 bounce_rate_threshold    = 0.03

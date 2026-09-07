@@ -20,6 +20,8 @@ export interface GlobalConfig {
   generator_budget_ms: number;
   generator_max_attempts: number;
   generator_min_severity: number;
+  /** §8.5. True when the worker approves ready proofs without a human. */
+  auto_approve: boolean;
   complaint_rate_threshold: number;
   bounce_rate_threshold: number;
   rate_window_days: number;

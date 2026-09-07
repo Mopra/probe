@@ -104,6 +104,19 @@ export const GlobalSchema = z.object({
   generator_max_attempts: z.number().int().min(1).default(3),
   // §6: probe mails severity 1 only. Raising this number only ever sends less.
   generator_min_severity: z.number().int().min(1).default(1),
+  /**
+   * §8.5. When true, the worker approves ready proofs itself instead of
+   * waiting for someone to click Approve in /queue.
+   *
+   * Defaults to FALSE, and the default is the point: approval is the last
+   * human read of an email addressed to a stranger, so switching it off has to
+   * be a line someone wrote in this file, never something a fresh deploy or a
+   * missing key decides. Every mechanical gate still applies to an
+   * auto-approval (the copy lint, suppression, contact-once, the warmup cap,
+   * the pause flag and PROBE_SEND_ENABLED); the only thing it removes is the
+   * pair of eyes on the copy.
+   */
+  auto_approve: z.boolean().default(false),
   complaint_rate_threshold: z.number().min(0).max(1).default(0.0005),
   bounce_rate_threshold: z.number().min(0).max(1).default(0.03),
   rate_window_days: z.number().int().min(1).default(7),

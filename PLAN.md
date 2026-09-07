@@ -41,7 +41,11 @@ logic, and never relaxed.
 2. **Suppression is global and permanent.** Unsubscribe, complaint, hard bounce
    or any reply removes that address from *every* campaign, forever. There is no
    resubscribe path.
-3. **Nothing sends without explicit approval.** Campaigns are born paused.
+3. **Nothing sends without approval, and approval is one configured gate.**
+   Campaigns are born paused. Every proof passes through approval before it can
+   be scheduled, and `auto_approve` in probe.toml decides whether a human or the
+   worker performs it (§8.5). The checks approval runs never move; the hand on
+   the button does. The flag defaults to false.
 4. **Dry-run is the default.** `PROBE_SEND_ENABLED` must be explicitly true.
 5. **No sends outside allowlisted jurisdictions.** A lead whose resolved
    country is not on `allowed_countries` never advances past match, and
@@ -708,9 +712,35 @@ exit1's probe infrastructure isn't hammered by its own outreach tool.
 
 ### 8.5 Approve
 
-Nothing is scheduled until Morten approves it in the UI. Approval re-runs the
-copy lint (§9.2); a failing email cannot be approved. Approving writes the
-`sends` row with `scheduled_for` computed from the pacing schedule.
+Nothing is scheduled until it is approved. Approval re-runs the copy lint
+(§9.2), re-checks suppression, and writes the `sends` row with `scheduled_for`
+computed from the pacing schedule; a failing email cannot be approved, and
+contact-once is decided by `sends_email_hash_uniq` on the insert rather than by
+a pre-check.
+
+**Who approves is configuration.** `auto_approve` in probe.toml, false by
+default:
+
+- **false**: Morten approves in `/queue`. Nothing moves until he does, and there
+  is no timeout on it.
+- **true**: the worker runs the identical sequence on a schedule, five minutes
+  off each generate tick from 06:00 to 23:00, capped per pass. Also runnable as
+  `cli approve`.
+
+The two paths share the slot planner (`planSendSlot` in `@probe/core`) so they
+cannot disagree about which day a send lands on, and they run the same four
+gates in the same order. They differ in one thing: when no day inside the
+horizon has capacity, the human path writes the row at the fallback slot and
+warns, because a person asked for it, and the automatic path leaves the proof in
+the queue and tries again next pass, because nobody is reading the warning.
+
+Auto-approval removes the human read and nothing below it. The pause flag, the
+warmup cap, the send window, suppression re-checked at dispatch and
+`PROBE_SEND_ENABLED` all live in §8.6 and are untouched, so an approved row is
+still only a row. What is genuinely given up is the one check no code performs:
+the lint can tell you the footer is missing, and cannot tell you the finding is
+wrong about their site. Turn it on when the generator's output has been boring
+for a fortnight, and turn it off again the day a generator changes.
 
 ### 8.6 Send, daemon, 09:00 to 16:00
 

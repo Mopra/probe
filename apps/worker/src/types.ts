@@ -81,6 +81,19 @@ export interface GenerateSummary {
   failed: number;
 }
 
+export interface ApproveSummary {
+  considered: number;
+  approved: number;
+  lint_failed: number;
+  suppressed: number;
+  contacted_other_campaign: number;
+  /** Left in the queue: no day inside the horizon had capacity (§5.4). */
+  no_capacity: number;
+  failed: number;
+  /** True when auto_approve is off in probe.toml, so the pass did nothing. */
+  disabled: boolean;
+}
+
 export interface SendSummary {
   attempted: number;
   sent: number;

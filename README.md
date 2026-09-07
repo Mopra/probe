@@ -22,7 +22,12 @@ launched. If nothing can be measured, no email is sent.
    all drops the lead. probe never falls back to a template.
 2. **Suppression is global and permanent.** Unsubscribe, complaint, hard bounce
    or any reply removes that address from every campaign, forever.
-3. **Nothing sends without explicit approval.** Campaigns are born paused.
+3. **Approval is a gate, and it is configurable.** Campaigns are born paused,
+   and every proof is approved before it is scheduled. Who does the approving is
+   `auto_approve` in `probe.toml`: false and a human clicks Approve in `/queue`,
+   true and the worker does it on a schedule. The gate itself never moves. An
+   approval, by either hand, still has to pass the copy lint, still re-checks
+   suppression, and is still refused by contact-once.
 4. **Dry-run is the default.** `PROBE_SEND_ENABLED` must be exactly `true`.
 5. **No sends into blocklisted jurisdictions.** `DK` and `DE` today. Everything
    else is contactable, including a lead whose country could not be established,
@@ -120,6 +125,7 @@ without a single real send is the entire point of M0.
 pnpm --filter @probe/worker cli sweep      # sweep the enabled sources
 pnpm --filter @probe/worker cli resolve    # jurisdiction gate, match, contact cascade
 pnpm --filter @probe/worker cli generate   # call generators for matched leads
+pnpm --filter @probe/worker cli approve    # §8.5, approve ready proofs in one pass
 pnpm --filter @probe/worker cli send       # one pacing tick, honours every gate
 pnpm --filter @probe/worker cli autopause  # evaluate the §5.5 thresholds
 pnpm web:dev                               # the operator console on :3000
@@ -147,10 +153,16 @@ pnpm --filter @probe/worker cli reconcile        # apply changed rules to existi
 | 07:00 | resolve jurisdiction, match a campaign, resolve a contact |
 | 07:30 | call the generators |
 | every 10 min, 06:00 to 23:00 | poll generator work that is still running |
+| every 10 min, 06:05 to 23:55 | approve ready proofs, when `auto_approve` is on |
 | 09:00 to 16:00, weekdays | the send daemon, one pacing loop per sending subdomain |
 
-Between 07:30 and whenever Morten opens `/queue`, nothing moves. That is by
-design: approval is a human gate and there is no timeout on it.
+With `auto_approve = false`, nothing moves between 07:30 and whenever Morten
+opens `/queue`. That is by design: approval is a human gate and there is no
+timeout on it. With `auto_approve = true`, the worker approves for itself within
+ten minutes and `/queue` is empty most of the time; what stays there is what
+auto-approval refused, which is a proof failing the copy lint or one the
+scheduler could find no capacity for. Neither is dropped, and both are waiting
+for a person.
 
 ## Configuration
 

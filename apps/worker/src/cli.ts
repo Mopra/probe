@@ -14,6 +14,7 @@ const COMMANDS = [
   'sweep',
   'resolve',
   'generate',
+  'approve',
   'send',
   'seed',
   'autopause',
@@ -71,6 +72,8 @@ function usage(): void {
   console.log('  sweep      run the launch directory sweep once (§8.1)');
   console.log('  resolve    run jurisdiction, match and contact resolution once (§8.2, §8.3)');
   console.log('  generate   start and poll generator work once (§8.4)');
+  console.log('  approve    approve every ready proof in the queue once (§8.5). Needs');
+  console.log('             auto_approve in probe.toml, or --yes to run it by hand');
   console.log('  send       one send iteration per campaign (§8.6)');
   console.log('  seed       upsert campaigns from probe.toml (§11)');
   console.log('  autopause  check rolling bounce and complaint rates (§5.5)');
@@ -96,7 +99,9 @@ function usage(): void {
   console.log('  --to <email>     smoke only: who the test email is addressed to');
   console.log('  --name <first>   smoke only: the first name the copy greets');
   console.log('  --check          smoke only: run the jurisdiction gate and stop, no writes');
+  console.log('  --limit <n>      approve: cap the proofs approved in one pass');
   console.log('  --yes            erase, stuck, reconcile: do it, rather than showing what would happen');
+  console.log('                   approve: run even when auto_approve is off in probe.toml');
 }
 
 /** Set by every command that opens a database connection, so the pool is only
@@ -374,6 +379,38 @@ async function main(): Promise<number> {
           `no_proof ${s.no_proof}  failed ${s.failed}`,
       );
       return 0;
+    }
+
+    case 'approve': {
+      // The manual half of §8.5's automation. `cli approve --yes` is what an
+      // operator runs to clear the queue in one go without turning the
+      // scheduled pass on, and it applies exactly the same gates.
+      const { runAutoApprove } = await import('./jobs/approve');
+      const summary = await runAutoApprove({ force: flags.yes, limit: flags.limit });
+
+      if (summary.disabled) {
+        console.log('auto_approve is false in probe.toml, so nothing was approved.');
+        console.log('Set it to true for the scheduled pass, or run `cli approve --yes` once.');
+        return 0;
+      }
+
+      console.log(
+        `considered ${summary.considered}  approved ${summary.approved}  ` +
+          `lint failed ${summary.lint_failed}  suppressed ${summary.suppressed}  ` +
+          `already contacted ${summary.contacted_other_campaign}  ` +
+          `no capacity ${summary.no_capacity}  failed ${summary.failed}`,
+      );
+      if (summary.lint_failed > 0) {
+        console.log('');
+        console.log(`  ${summary.lint_failed} proof(s) stayed in /queue because the copy lint`);
+        console.log('  refused them. `pnpm dry-run --from-db` shows what it objected to.');
+      }
+      if (summary.no_capacity > 0) {
+        console.log('');
+        console.log(`  ${summary.no_capacity} proof(s) stayed in /queue because no day inside`);
+        console.log('  the horizon had room. Usually warmup has not started: `cli warmup <slug>`.');
+      }
+      return summary.failed > 0 ? 1 : 0;
     }
 
     case 'send': {

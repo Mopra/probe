@@ -5,6 +5,7 @@ import {
   computeGapMs,
   dailyCap,
   inSendWindow,
+  planSendSlot,
   scheduleSlots,
   warmupDay,
   windowBounds,
@@ -244,5 +245,108 @@ describe('scheduleSlots', () => {
     const slots = scheduleSlots({ from, end: from, count: 5, gapFloorMinutes: 4, jitter: 0.4, rng: () => 0.5 });
     expect(slots).toEqual([]);
     expect(scheduleSlots({ from, end, count: 0, gapFloorMinutes: 4, jitter: 0.4 })).toEqual([]);
+  });
+});
+
+describe('planSendSlot', () => {
+  // 2026-09-01 is a Tuesday. 07:00Z is 09:00 Copenhagen, the window opening.
+  const base = {
+    timezone: TZ,
+    sendDays: WEEKDAYS,
+    window: WINDOW,
+    gapFloorMinutes: 4,
+    jitter: 0.4,
+    campaignDailyCap: 50,
+    queuedAt: [] as number[],
+    sentToday: 0,
+    rng: () => 0.5,
+  };
+
+  it('puts the first send of an open day inside the day window', () => {
+    const now = at('2026-09-01T07:00:00Z');
+    const plan = planSendSlot({ ...base, now, warmupStart: '2026-08-01' });
+
+    expect(plan.overCapacity).toBe(false);
+    expect(plan.cap).toBe(50);
+    expect(plan.scheduledFor.getTime()).toBeGreaterThanOrEqual(now.getTime());
+    expect(plan.scheduledFor.getTime()).toBeLessThan(at('2026-09-01T14:00:00Z').getTime());
+  });
+
+  it('rolls to the next send day once today is at its cap', () => {
+    const now = at('2026-09-01T07:00:00Z');
+    // Day 1 of warmup: the tier cap is 5, and five are already queued today.
+    const queuedAt = [0, 1, 2, 3, 4].map(
+      (i) => at('2026-09-01T08:00:00Z').getTime() + i * 60 * 60_000 / 4,
+    );
+    const plan = planSendSlot({
+      ...base,
+      now,
+      warmupStart: '2026-09-01',
+      queuedAt,
+    });
+
+    expect(plan.overCapacity).toBe(false);
+    expect(plan.cap).toBe(5);
+    expect(plan.queuedInWindow).toBe(0); // counted in tomorrow's window, not today's
+    expect(plan.scheduledFor.getTime()).toBeGreaterThanOrEqual(
+      at('2026-09-02T07:00:00Z').getTime(),
+    );
+    expect(plan.scheduledFor.getTime()).toBeLessThan(at('2026-09-02T14:00:00Z').getTime());
+  });
+
+  it('skips the weekend', () => {
+    // Friday 15:59 Copenhagen, one minute of window left but a full cap today.
+    const now = at('2026-09-04T13:59:00Z');
+    const queuedAt = Array.from(
+      { length: 5 },
+      (_, i) => at('2026-09-04T07:30:00Z').getTime() + i * 60_000,
+    );
+    const plan = planSendSlot({ ...base, now, warmupStart: '2026-09-04', queuedAt });
+
+    // Saturday and Sunday are not send days, so the next slot is Monday.
+    expect(plan.scheduledFor.getTime()).toBeGreaterThanOrEqual(
+      at('2026-09-07T07:00:00Z').getTime(),
+    );
+    expect(plan.scheduledFor.getTime()).toBeLessThan(at('2026-09-07T14:00:00Z').getTime());
+  });
+
+  it('counts what has already gone out today, and only today', () => {
+    const now = at('2026-09-01T07:00:00Z');
+    const plan = planSendSlot({
+      ...base,
+      now,
+      warmupStart: '2026-09-01', // cap 5
+      sentToday: 5,
+    });
+
+    expect(plan.sentToday).toBe(5);
+    expect(plan.overCapacity).toBe(false);
+    // Today is spent, tomorrow is not: sentToday applies to day 0 alone.
+    expect(plan.scheduledFor.getTime()).toBeGreaterThanOrEqual(
+      at('2026-09-02T07:00:00Z').getTime(),
+    );
+  });
+
+  it('reports overCapacity, and a slot anyway, when warmup has not started', () => {
+    const now = at('2026-09-01T07:00:00Z');
+    const plan = planSendSlot({ ...base, now, warmupStart: null });
+
+    // The cap is 0 on every day in the horizon, so no day has room. The caller
+    // decides what that means: /queue writes the row and warns, the worker's
+    // auto-approval leaves the proof in the queue.
+    expect(plan.overCapacity).toBe(true);
+    expect(plan.cap).toBe(0);
+    expect(plan.scheduledFor.getTime()).toBeGreaterThanOrEqual(now.getTime());
+  });
+
+  it('never places a send after the window has closed for the day', () => {
+    // 16:30 Copenhagen on a Tuesday: today's window is over.
+    const now = at('2026-09-01T14:30:00Z');
+    const plan = planSendSlot({ ...base, now, warmupStart: '2026-08-01' });
+
+    expect(plan.overCapacity).toBe(false);
+    expect(plan.scheduledFor.getTime()).toBeGreaterThanOrEqual(
+      at('2026-09-02T07:00:00Z').getTime(),
+    );
   });
 });

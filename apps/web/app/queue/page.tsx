@@ -4,7 +4,7 @@ import type { LintResult } from '@probe/core';
 import { approveProof, rejectProof } from './actions';
 import { QueueKeys } from './keys';
 import { cn, formatDateTime, metaEntries, relativeAge } from '../lib/format';
-import { operatorTimezone } from '../lib/probe';
+import { globalConfig, operatorTimezone } from '../lib/probe';
 import { renderProof } from '../lib/render';
 import type { RenderedProof } from '../lib/render';
 import { Button, Chip, Empty, Field, LinkButton } from '../lib/ui';
@@ -28,6 +28,7 @@ export default async function QueuePage({
   };
 
   const timezone = operatorTimezone();
+  const autoApprove = globalConfig()?.auto_approve ?? false;
   const items = await listQueue();
   const rendered = items.map((item) => renderProof(item));
   const failing = rendered.filter((r) => !r.lint.ok).length;
@@ -44,11 +45,14 @@ export default async function QueuePage({
             {items.length} awaiting approval
           </Chip>
           {failing > 0 && <Chip tone="danger">{failing} failing lint</Chip>}
+          {autoApprove && <Chip tone="warn">auto-approve on</Chip>}
           <span className="font-mono text-[11px] text-faint">
             nothing here has been scheduled
           </span>
         </div>
       </header>
+
+      {autoApprove && <AutoApproveBanner />}
 
       {search.notice && <Notice code={search.notice} detail={search.detail} timezone={timezone} />}
 
@@ -57,7 +61,11 @@ export default async function QueuePage({
       {items.length === 0 ? (
         <Empty
           headline="Nothing to approve."
-          hint="Items land here when the generate job returns a finding for a matched lead with a resolved contact: a severity 1 defect, or a severity 0 clean report saying every check passed. A generator that cannot measure the site at all drops the lead as no_proof."
+          hint={
+            autoApprove
+              ? 'Items land here when the generate job returns a finding, and auto-approve is on, so the worker schedules them within ten minutes and this screen is empty most of the time. What is left behind is what auto-approval refused: a proof failing the copy lint, or one with no capacity inside the horizon. /sends is where the approved ones went.'
+              : 'Items land here when the generate job returns a finding for a matched lead with a resolved contact: a severity 1 defect, or a severity 0 clean report saying every check passed. A generator that cannot measure the site at all drops the lead as no_proof.'
+          }
         />
       ) : (
         <div className="flex flex-col gap-6">
@@ -72,6 +80,28 @@ export default async function QueuePage({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * §8.5. Says what this screen is when the worker is approving for itself, so an
+ * empty queue reads as the automation working rather than as a dead pipeline.
+ * Approve here still works and means the same thing: it just races a cron.
+ */
+function AutoApproveBanner() {
+  return (
+    <div className="border border-warn-dim bg-warn-dim/15 px-4 py-3">
+      <p className="text-[13px] text-fg">
+        <span className="font-medium">Auto-approve is on.</span> The worker approves every ready
+        proof that passes the copy lint, every ten minutes from 06:00 to 23:00, without waiting
+        for this screen.
+      </p>
+      <p className="mt-1 font-mono text-[11px] leading-relaxed text-faint">
+        Suppression, contact-once, the warmup cap, the pause flag and PROBE_SEND_ENABLED are
+        unchanged and still decide whether an approved row becomes an email. Turn it off with
+        auto_approve = false in probe.toml.
+      </p>
     </div>
   );
 }
