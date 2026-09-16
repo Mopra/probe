@@ -151,12 +151,21 @@ pnpm --filter @probe/worker cli reconcile        # apply changed rules to existi
 
 | Time (Europe/Copenhagen) | What runs |
 |--------------------------|-----------|
-| 06:30 | sweep the launch directories |
-| 07:00 | resolve jurisdiction, match a campaign, resolve a contact |
-| 07:30 | call the generators |
-| every 10 min, 06:00 to 23:00 | poll generator work that is still running |
-| every 10 min, 06:05 to 23:55 | approve ready proofs, when `auto_approve` is on |
-| 09:00 to 16:00, weekdays | the send daemon, one pacing loop per sending subdomain |
+| 06:30, daily | sweep the launch directories |
+| 07:00, daily | resolve jurisdiction, match a campaign, resolve a contact |
+| 07:30, send days | call the generators |
+| every 10 min, 06:00 to 18:00, send days | poll generator work that is still running |
+| every 10 min, 06:05 to 17:55, send days | approve ready proofs, when `auto_approve` is on |
+| hourly, 06:00 to 18:00, send days | the bounce and complaint auto-pause check |
+| 09:00 to 16:00, send days | the send daemon, one pacing loop per sending subdomain |
+
+Everything but the sweep and the resolve is limited to `send_days` and stops at
+18:00. Not for tidiness: Postgres is Neon, its free allowance is compute-hours,
+and its compute suspends after five idle minutes. A schedule that ticks every
+ten minutes around the clock never lets that happen, so the database bills for
+every hour of the month instead of the forty or so it is doing anything in.
+Outside these hours the worker is asleep rather than polling, and a lead swept
+on a Saturday waits for Monday's generate pass.
 
 With `auto_approve = false`, nothing moves between 07:30 and whenever Morten
 opens `/queue`. That is by design: approval is a human gate and there is no

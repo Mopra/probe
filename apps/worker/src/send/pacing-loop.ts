@@ -342,8 +342,16 @@ export function nextWindowStart(
 
 /** How long to wait after an iteration that did not send. Short enough that a
  *  kill switch or an unpause is noticed quickly, long enough not to hammer
- *  Postgres with an empty queue. */
-export const IDLE_BEAT_MS = 30_000;
+ *  Postgres with an empty queue.
+ *
+ *  Two minutes, not the thirty seconds it was. Postgres is Neon, which bills
+ *  compute by the hour it is awake and suspends itself after five idle
+ *  minutes, so an empty-queue poll is not free: it is three queries and it
+ *  resets that timer. Nothing is lost by the slower beat, because gap_floor
+ *  already spaces real sends four minutes apart, so a row that appears one
+ *  second after a poll was never going out in the next thirty seconds
+ *  anyway. */
+export const IDLE_BEAT_MS = 120_000;
 export const BLOCKED_BEAT_MS = 60_000;
 export const CAP_BEAT_MS = 5 * 60_000;
 /** Longest single sleep. Chunking a nine hour overnight wait keeps SIGTERM
@@ -374,17 +382,37 @@ export function beatFor(outcome: IterationOutcome): number {
   }
 }
 
-/** Sleep that wakes early when the daemon is stopping. */
+/**
+ * Sleep that wakes early when the daemon is stopping, and only then.
+ *
+ * The chunking is an implementation detail and has to stay one: this used to
+ * return after MAX_SLEEP_MS whatever it was asked for, which made the caller's
+ * loop run a full iteration every five minutes through the night. That is a
+ * database query every five minutes, for sixteen hours, to be told again that
+ * the send window is closed. Neon suspends a compute after five idle minutes
+ * and bills the hours it is awake, so that beat sat exactly on the threshold
+ * and kept it awake around the clock. Now the whole duration elapses inside
+ * this function and the caller wakes once, when there is something to do.
+ */
 export function sleepUntil(ms: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted || ms <= 0) return Promise.resolve();
+  const deadline = Date.now() + ms;
   return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (): void => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       signal.removeEventListener('abort', finish);
       resolve();
     };
-    const timer = setTimeout(finish, Math.min(ms, MAX_SLEEP_MS));
+    // One timer at a time, re-armed until the deadline, so a nine hour wait
+    // still notices SIGTERM within MAX_SLEEP_MS without a second timer.
+    const tick = (): void => {
+      const remaining = deadline - Date.now();
+      if (signal.aborted || remaining <= 0) return finish();
+      timer = setTimeout(tick, Math.min(remaining, MAX_SLEEP_MS));
+    };
     signal.addEventListener('abort', finish, { once: true });
+    tick();
   });
 }
 
