@@ -80,36 +80,56 @@ export interface ScreenOptions {
  * written as one person to another, which is the same reason isRoleAddress
  * refuses support@, and a stranger's support queue is not who it is for.
  *
- * Confidence is recorded in the reason and does not move the line: a model
- * that says 'person' at 0.4 has still not said the address is generated.
+ * Confidence moves the line one way only: see effectiveVerdict.
  */
 export function passes(verdict: ScreenVerdict): boolean {
   return verdict === 'person';
 }
 
+/** Below this, a 'shared' or 'junk' answer is the model hedging over an
+ *  address the rules already passed. The first dry run refused
+ *  kyle@simgen.dev at 0.42, which is a guess, not a finding. */
+export const MIN_REJECT_CONFIDENCE = 0.6;
+
+/** The verdict we store and act on. A low confidence refusal is stored as
+ *  'person', with the model's own answer kept in the reason. */
+export function effectiveVerdict(answer: ScreenAnswer): ScreenVerdict {
+  if (answer.verdict !== 'person' && answer.confidence < MIN_REJECT_CONFIDENCE) return 'person';
+  return answer.verdict;
+}
+
+// The first prompt asked whether the founder reads the address, and the model
+// refused real people for it: an HN profile address on a personal domain, a
+// handle at gmail. The question that cost us the campaign is whether mail
+// bounces, so that is what this one asks first.
 export const SYSTEM_PROMPT = [
   'You screen email addresses for a cold outreach tool that writes one short, personal',
-  'email to the founder of a newly launched software product. Every address was found',
-  'on the product\'s website or a related public page. Your job is to say whether the',
-  'address is plausibly a real inbox that the founder reads, using only the address and',
-  'the product details given. You cannot check whether it exists; judge plausibility.',
+  'email to the maker of a newly launched software product. Every address was found on',
+  'the product\'s website or a related public page. The question that matters most is:',
+  'would mail to this address bounce, or land in an inbox nobody reads? You cannot check',
+  'whether it exists; judge plausibility from the address and the product details.',
   '',
   'Answer with one JSON object and nothing else:',
   '{"verdict": "person" | "shared" | "junk", "confidence": number from 0 to 1, "reason": short string}',
   '',
-  '"person": plausibly a real human\'s inbox, or a small team inbox a founder reads.',
-  'A name or initials on the product\'s own domain is person. hello@, hi@, contact@,',
-  'team@ or founders@ on a small or solo product is person. A name-like address at a',
-  'personal mailbox provider (gmail.com, proton.me, icloud.com) is person.',
-  '"shared": a real but departmental inbox at an organisation large enough to have',
-  'departments, which the founder is unlikely to read (sales, support desks, partnerships).',
-  '"junk": generated or random looking, a placeholder or example, a scraper artefact',
-  '(asset names, tokens, tracking ids), an obvious typo, an address on a domain that',
-  'does not match the product and has no visible reason to, or anything that looks',
-  'unlikely to exist.',
+  '"person": plausibly a real human\'s inbox, or a small team inbox a maker reads.',
+  '- A first name, surname, initials or handle on ANY domain is person. Makers often use a',
+  '  personal domain or an employer domain that does not match the product. That is normal.',
+  '- Unusual or handle-style usernames at gmail.com, outlook.com, proton.me, icloud.com and',
+  '  similar providers are person. People choose odd usernames.',
+  '- hello@, hi@, contact@, team@, founders@, me@ on a small product\'s own domain is person.',
+  '- contact_method "hn_profile" means the maker typed this address into their own Hacker',
+  '  News profile. That is strong evidence it is real and read: only call it junk if it is',
+  '  plainly fake.',
+  '"shared": a real but functional inbox the maker is unlikely to read personally:',
+  'business@, enterprise@, agency@, report@, deployments@, accessibility@, a registrar\'s',
+  'or hosting company\'s address, or a department at a large company.',
+  '"junk": generated or random looking (token-like strings, ids), a placeholder or example',
+  '(acme.com, sarah@acme.co, maya@acme.dev), a scraper artefact where words from the page',
+  'are glued onto the address, an obvious typo, or a domain that cannot be real.',
   '',
-  'Be strict about junk and lenient about small products: most products here are made',
-  'by one or two people, and their only address is often hello@.',
+  'Do not call an address junk just because it is unusual or does not match the product',
+  'domain. Most products here are made by one or two people.',
 ].join('\n');
 
 export function buildScreenInput(contact: ContactRow, lead: LeadRow, context: string | null = null): ScreenInput | null {
@@ -255,8 +275,10 @@ export async function screenContact(
     return { decision: 'deferred', reason: answer };
   }
 
-  const reason = `llm ${answer.confidence.toFixed(2)}: ${answer.reason}`;
-  if (!opts.dryRun) await setContactScreen(contact.id, { verdict: answer.verdict, reason });
+  const verdict = effectiveVerdict(answer);
+  const hedge = verdict !== answer.verdict ? ` (said ${answer.verdict}, too unsure to refuse)` : '';
+  const reason = `llm ${answer.confidence.toFixed(2)}${hedge}: ${answer.reason}`;
+  if (!opts.dryRun) await setContactScreen(contact.id, { verdict, reason });
   log.info('contact screened', {
     lead: lead.domain,
     method: contact.method,
@@ -264,7 +286,7 @@ export async function screenContact(
     confidence: answer.confidence,
   });
 
-  return passes(answer.verdict)
+  return passes(verdict)
     ? { decision: 'pass', verdict: 'person', reason, stage: 'llm' }
-    : { decision: 'reject', verdict: answer.verdict, reason, stage: 'llm' };
+    : { decision: 'reject', verdict, reason, stage: 'llm' };
 }
