@@ -86,6 +86,11 @@ export interface ApproveSummary {
   approved: number;
   lint_failed: number;
   suppressed: number;
+  /** Dropped: the rules or the LLM screen say the address is not a founder's
+   *  inbox (0004). */
+  implausible_address: number;
+  /** Left in the queue: the screen could not answer, so nothing was decided. */
+  screen_deferred: number;
   /** Dropped: the contact's domain has no MX, no A and no AAAA (§8.5). */
   undeliverable: number;
   /** Left in the queue: DNS would not answer, so nothing was decided. */

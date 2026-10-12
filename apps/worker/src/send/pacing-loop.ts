@@ -20,6 +20,7 @@ import {
 import {
   cancelSend,
   claimNextDueSend,
+  dropLead,
   getCampaign,
   getContactForLead,
   getLead,
@@ -35,6 +36,7 @@ import {
   type SendRow,
 } from '@probe/db';
 import { loadConfig, logger, type ProbeConfig } from '@probe/config';
+import { screenContact } from '../contact/screen';
 import { describeLint, renderSend } from './render';
 import { baseUrl, postalAddress, sendEnabled } from './runtime';
 import type { SendReceipt, Sender } from './sender';
@@ -50,6 +52,7 @@ export type IterationOutcome =
   | { kind: 'cap_reached'; sentToday: number; cap: number }
   | { kind: 'idle' }
   | { kind: 'cancelled'; sendId: string; reason: string }
+  | { kind: 'deferred'; sendId: string; reason: string }
   | { kind: 'lint_failed'; sendId: string; violations: LintViolation[] }
   | { kind: 'failed'; sendId: string; error: string }
   | { kind: 'sent'; sendId: string; providerEmailId: string; gapMs: number };
@@ -147,7 +150,7 @@ export interface DispatchArgs {
 }
 
 /**
- * Gates 6 to 9, for a row that is already claimed and therefore already off the
+ * Gates 6 to 9 and the plausibility screen, for a row that is already claimed and therefore already off the
  * queue. Every exit either resolves the row (sent / failed / cancelled) or
  * throws, and the caller releases it on a throw.
  */
@@ -189,6 +192,36 @@ export async function dispatchClaimed(args: DispatchArgs): Promise<IterationOutc
     // nothing transient about it and the slot should go back.
     await cancelSend(send.id, 'contact address scrubbed');
     return { kind: 'cancelled', sendId: send.id, reason: 'contact address scrubbed' };
+  }
+
+  // Gate 6b. The plausibility screen, beside suppression and for the same
+  // reason: it has to hold for every row that reaches dispatch, not only for
+  // the ones auto-approve saw. A manual approval in /queue never ran it, and
+  // neither did the backlog approved before it existed. For a contact screened
+  // at approval this is a read of the cached verdict, not a model call.
+  const screen = await screenContact(contact, lead);
+  if (screen.decision === 'reject') {
+    // Cancelled, not failed: nothing was sent, and the slot goes back. The
+    // lead is dropped so its proof does not return to /queue for approval.
+    await cancelSend(send.id, 'implausible address');
+    await dropLead(lead.id, 'implausible_address');
+    log.info('send cancelled, address is not plausibly a founder inbox', {
+      sendId: send.id,
+      verdict: screen.verdict,
+      reason: screen.reason,
+    });
+    return { kind: 'cancelled', sendId: send.id, reason: 'implausible address' };
+  }
+  if (screen.decision === 'deferred') {
+    // No verdict is not a reason to send or to cancel. Back to the queue, and
+    // the loop waits a blocked beat before claiming again, so an OpenRouter
+    // outage is a pause rather than a spin.
+    await releaseSend(send.id);
+    log.warn('send deferred, the plausibility screen did not answer', {
+      sendId: send.id,
+      reason: screen.reason,
+    });
+    return { kind: 'deferred', sendId: send.id, reason: screen.reason };
   }
 
   const rendered = renderSend({
@@ -371,6 +404,9 @@ export function beatFor(outcome: IterationOutcome): number {
     case 'disabled':
     case 'paused':
     case 'missing_campaign':
+    // A deferred screen put its row back at the head of the queue. Claiming it
+    // again a second later would only ask OpenRouter the same failing question.
+    case 'deferred':
       return BLOCKED_BEAT_MS;
     // A cancel, a lint refusal or an SES error consumed no quota and left the
     // queue shorter. Take the next row after a short breath rather than

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { IDLE_BEAT_MS, MAX_SLEEP_MS, beatFor, sleepUntil } from './pacing-loop';
+import { BLOCKED_BEAT_MS, IDLE_BEAT_MS, MAX_SLEEP_MS, beatFor, sleepUntil } from './pacing-loop';
 
 describe('sleepUntil', () => {
   it('sleeps the whole duration, not one chunk of it', async () => {
@@ -62,5 +62,11 @@ describe('beatFor', () => {
     // possible answer.
     expect(beatFor({ kind: 'idle' })).toBe(IDLE_BEAT_MS);
     expect(IDLE_BEAT_MS).toBeGreaterThanOrEqual(60_000);
+  });
+
+  it('backs off after a deferred screen instead of reclaiming the same row', () => {
+    // The row went back to the head of the queue. A one second beat would ask
+    // OpenRouter the same failing question every second.
+    expect(beatFor({ kind: 'deferred', sendId: 's', reason: 'openrouter 503' })).toBe(BLOCKED_BEAT_MS);
   });
 });

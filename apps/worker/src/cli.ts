@@ -27,6 +27,7 @@ const COMMANDS = [
   'stuck',
   'smoke',
   'reconcile',
+  'screen',
 ] as const;
 
 type Command = (typeof COMMANDS)[number];
@@ -42,12 +43,14 @@ interface Flags {
   name?: string;
   /** smoke only: run the jurisdiction gate and stop, writing nothing. */
   check: boolean;
+  /** screen only: decide and print, writing nothing. */
+  dryRun: boolean;
   /** Bare arguments, in order: `warmup exit1 2026-09-08` -> ['exit1', '...']. */
   positional: string[];
 }
 
 function parseFlags(argv: string[]): Flags {
-  const flags: Flags = { fromDb: false, yes: false, check: false, positional: [] };
+  const flags: Flags = { fromDb: false, yes: false, check: false, dryRun: false, positional: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--from-db') flags.fromDb = true;
@@ -55,6 +58,7 @@ function parseFlags(argv: string[]): Flags {
     else if (arg === '--out') flags.out = argv[++i];
     else if (arg === '--limit') flags.limit = Number(argv[++i]);
     else if (arg === '--check') flags.check = true;
+    else if (arg === '--dry-run') flags.dryRun = true;
     else if (arg === '--to') flags.to = argv[++i];
     else if (arg === '--name') flags.name = argv[++i];
     else if (arg.startsWith('--out=')) flags.out = arg.slice('--out='.length);
@@ -91,6 +95,8 @@ function usage(): void {
   console.log('  reconcile  apply the current rules to leads decided under the old ones:');
   console.log('             platform domains, dead campaigns, jurisdiction changes.');
   console.log('             Shows the plan; --yes does it');
+  console.log('  screen     screen every contact behind a queued send for plausibility, and');
+  console.log('             cancel and drop the ones that fail. --dry-run writes nothing');
   console.log('');
   console.log('flags:');
   console.log('  --from-db        dry-run only: render every ready proof instead of fixtures');
@@ -100,6 +106,8 @@ function usage(): void {
   console.log('  --name <first>   smoke only: the first name the copy greets');
   console.log('  --check          smoke only: run the jurisdiction gate and stop, no writes');
   console.log('  --limit <n>      approve: cap the proofs approved in one pass');
+  console.log('                   screen: cap the queued sends screened');
+  console.log('  --dry-run        screen only: print verdicts, cancel nothing, cache nothing');
   console.log('  --yes            erase, stuck, reconcile: do it, rather than showing what would happen');
   console.log('                   approve: run even when auto_approve is off in probe.toml');
 }
@@ -397,6 +405,7 @@ async function main(): Promise<number> {
       console.log(
         `considered ${summary.considered}  approved ${summary.approved}  ` +
           `lint failed ${summary.lint_failed}  suppressed ${summary.suppressed}  ` +
+          `implausible ${summary.implausible_address}  screen deferred ${summary.screen_deferred}  ` +
           `undeliverable ${summary.undeliverable}  dns unresolved ${summary.dns_unresolved}  ` +
           `already contacted ${summary.contacted_other_campaign}  ` +
           `no capacity ${summary.no_capacity}  failed ${summary.failed}`,
@@ -405,6 +414,16 @@ async function main(): Promise<number> {
         console.log('');
         console.log(`  ${summary.lint_failed} proof(s) stayed in /queue because the copy lint`);
         console.log('  refused them. `pnpm dry-run --from-db` shows what it objected to.');
+      }
+      if (summary.implausible_address > 0) {
+        console.log('');
+        console.log(`  ${summary.implausible_address} lead(s) dropped as implausible_address: the rules`);
+        console.log('  or the LLM screen judged the contact not to be a founder inbox.');
+      }
+      if (summary.screen_deferred > 0) {
+        console.log('');
+        console.log(`  ${summary.screen_deferred} proof(s) stayed in /queue because the plausibility`);
+        console.log('  screen did not answer. Check OPENROUTER_API_KEY; the next pass asks again.');
       }
       if (summary.undeliverable > 0) {
         console.log('');
@@ -616,6 +635,76 @@ async function main(): Promise<number> {
       return 0;
     }
 
+    case 'screen': {
+      // The backlog. Everything approved before the plausibility screen existed
+      // would otherwise meet it one row at a time at dispatch, inside the send
+      // window, at the pace of the warmup cap. This clears it in one sitting
+      // and shows every verdict, so the rules and the prompt can be judged on
+      // the real queue rather than on a guess.
+      //
+      // --dry-run still asks the model (that is the point of looking) but
+      // writes nothing: no verdict is cached, no send is cancelled, no lead is
+      // dropped. A real run afterwards asks again.
+      const { cancelSend, dropLead, listQueuedSendTargets } = await import('@probe/db');
+      const { screenContact } = await import('./contact/screen');
+      const { mapLimit } = await import('./jobs/generate');
+
+      const targets = await listQueuedSendTargets(flags.limit ?? 1000);
+      if (targets.length === 0) {
+        console.log('no queued sends to screen.');
+        return 0;
+      }
+      console.log(
+        `screening ${targets.length} contact(s) behind queued sends` +
+          (flags.dryRun ? ', dry run: nothing is written' : ''),
+      );
+      console.log('');
+
+      // Four at a time: a few hundred model calls should not take an hour, and
+      // should not look like a burst to OpenRouter either.
+      const results = await mapLimit(targets, 4, async (t) => {
+        try {
+          const screen = await screenContact(t.contact, t.lead, { dryRun: flags.dryRun });
+          if (screen.decision === 'reject' && !flags.dryRun) {
+            await cancelSend(t.send_id, 'implausible address');
+            await dropLead(t.lead.id, 'implausible_address');
+          }
+          return { t, screen };
+        } catch (err) {
+          return { t, screen: { decision: 'deferred' as const, reason: `threw: ${describe(err)}` } };
+        }
+      });
+
+      const counts = new Map<string, number>();
+      for (const { t, screen } of results) {
+        const label =
+          screen.decision === 'deferred'
+            ? 'deferred'
+            : `${screen.decision} ${screen.verdict} (${screen.stage})`;
+        counts.set(label, (counts.get(label) ?? 0) + 1);
+        console.log(
+          `  ${screen.decision.padEnd(8)} ${(t.contact.email_norm ?? '(scrubbed)').padEnd(40)} ` +
+            `${t.contact.method.padEnd(12)} ${screen.reason}`,
+        );
+      }
+
+      console.log('');
+      for (const [label, n] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
+        console.log(`  ${String(n).padStart(5)}  ${label}`);
+      }
+      const rejected = results.filter((r) => r.screen.decision === 'reject').length;
+      const deferred = results.filter((r) => r.screen.decision === 'deferred').length;
+      console.log('');
+      console.log(
+        flags.dryRun
+          ? `would cancel and drop ${rejected} of ${results.length}. Run without --dry-run to do it.`
+          : `cancelled and dropped ${rejected} of ${results.length} as implausible_address.`,
+      );
+      if (deferred > 0) {
+        console.log(`${deferred} deferred: the screen did not answer. Dispatch will ask again.`);
+      }
+      return 0;
+    }
 
     case 'smoke': {
       // The end-to-end rehearsal (§13 M6). It inserts a product you name as a
@@ -866,6 +955,10 @@ async function main(): Promise<number> {
           return 1;
         case 'cancelled':
           console.log(`cancelled: ${outcome.reason}`);
+          return 1;
+        case 'deferred':
+          console.log(`deferred, the plausibility screen did not answer: ${outcome.reason}`);
+          console.log('The send is back in the queue. Check OPENROUTER_API_KEY and run it again.');
           return 1;
         case 'failed':
           console.log(`the provider refused it: ${outcome.error}`);

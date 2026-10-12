@@ -13,9 +13,15 @@
 //      than trusted from generation (§9.2.8)
 //   3. the address must not have been suppressed     isSuppressed
 //      since the proof was built
-//   4. the domain must still accept mail             checkDeliverability
-//   5. contact-once is decided by                    sends_email_hash_uniq
+//   4. the address must be plausibly a person's      screenContact
+//      inbox (rules, then the LLM screen)
+//   5. the domain must still accept mail             checkDeliverability
+//   6. contact-once is decided by                    sends_email_hash_uniq
 //      the index, not by this code (§3.2)
+//
+// Gate 4 is the one the manual path does not run. It costs an OpenRouter call
+// and the web app has no key, so a manual approval meets the screen at
+// dispatch instead, where the send loop runs it before anything leaves.
 //
 // And the gates it never reaches are untouched: the campaign's paused
 // flag, the warmup cap, the pacing window and PROBE_SEND_ENABLED all live at
@@ -40,6 +46,7 @@ import {
   type QueueItem,
 } from '@probe/db';
 import { loadConfig, logger } from '@probe/config';
+import { screenContact } from '../contact/screen';
 import { describeLint, renderSend } from '../send/render';
 import { approver, baseUrl, postalAddress } from '../send/runtime';
 import { planSlot } from '../send/plan';
@@ -66,6 +73,8 @@ export async function runAutoApprove(options: AutoApproveOptions = {}): Promise<
     approved: 0,
     lint_failed: 0,
     suppressed: 0,
+    implausible_address: 0,
+    screen_deferred: 0,
     undeliverable: 0,
     dns_unresolved: 0,
     contacted_other_campaign: 0,
@@ -114,13 +123,15 @@ type ApproveOutcome =
   | 'approved'
   | 'lint_failed'
   | 'suppressed'
+  | 'implausible_address'
+  | 'screen_deferred'
   | 'undeliverable'
   | 'dns_unresolved'
   | 'contacted_other_campaign'
   | 'no_capacity';
 
 /**
- * One proof, through the same five gates as §8.5, in the same order.
+ * One proof, through the §8.5 gates plus the plausibility screen, in order.
  *
  * The tokens are minted once and used for both the lint and the send row, so
  * the message the lint passed is the message the row will render.
@@ -162,6 +173,33 @@ async function approveOne(
       lead: lead.domain,
     });
     return 'suppressed';
+  }
+
+  // The plausibility screen, after suppression so a suppressed address never
+  // costs a model call, and before DNS because a generated address on a live
+  // domain resolves perfectly well. The verdict is cached on the contact, so
+  // dispatch reads it rather than asking again.
+  const screen = await screenContact(contact, lead);
+  if (screen.decision === 'reject') {
+    // Permanent, like undeliverable: the address is what it is, and asking
+    // again next pass would get the same answer.
+    await dropLead(lead.id, 'implausible_address');
+    log.warn('auto-approval refused, address is not plausibly a founder inbox', {
+      proof_id: proof.id,
+      lead: lead.domain,
+      verdict: screen.verdict,
+      reason: screen.reason,
+    });
+    return 'implausible_address';
+  }
+  if (screen.decision === 'deferred') {
+    // No verdict, so nothing is decided. Left in the queue like a DNS timeout.
+    log.warn('auto-approval deferred, the plausibility screen did not answer', {
+      proof_id: proof.id,
+      lead: lead.domain,
+      reason: screen.reason,
+    });
+    return 'screen_deferred';
   }
 
   // §8.5 gate 4. The MX answer this address was accepted on was taken at

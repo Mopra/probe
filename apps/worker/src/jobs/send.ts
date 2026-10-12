@@ -52,6 +52,11 @@ function tally(summary: SendSummary, outcome: IterationOutcome): void {
       summary.attempted += 1;
       summary.skipped += 1;
       break;
+    case 'deferred':
+      // Claimed and released: the screen could not answer, so the row is back
+      // in the queue and nothing was attempted.
+      summary.skipped += 1;
+      break;
     default:
       // disabled, paused, out of window, cap reached, idle, missing campaign.
       // Nothing was claimed, so nothing was attempted.
