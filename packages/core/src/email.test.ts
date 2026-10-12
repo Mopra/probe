@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { hashEmail, isDisposableOrJunk, isRoleAddress, normalizeEmail } from './email';
+import { hashEmail, isDisposableOrJunk, isRoleAddress, junkReason, normalizeEmail } from './email';
 
 describe('normalizeEmail', () => {
   it('lowercases and trims', () => {
@@ -149,5 +149,73 @@ describe('isDisposableOrJunk', () => {
   it('accepts a real looking founder address', () => {
     expect(isDisposableOrJunk('priya@meterbase.dev')).toBe(false);
     expect(isDisposableOrJunk('morten@exit1.dev')).toBe(false);
+  });
+});
+
+describe('junkReason', () => {
+  // The five addresses that bounced from the first 33 sends, all scraped off
+  // product sites. The first three are refusable without asking anyone. The
+  // two hello@ ones are shaped like a real founder inbox and pass the rules;
+  // whether they exist is the LLM screen's question, not this function's.
+  it('rejects the bounced addresses that a rule can see', () => {
+    expect(junkReason('partners@marketsync.ai')).toMatch(/role word/);
+    expect(junkReason('helpfaqsupport@sageling.ai')).toMatch(/role word/);
+    expect(junkReason('562ae1d6@ssh.ephemerals.dev')).toMatch(/hex token|digits/);
+  });
+
+  it('passes the bounced hello@ addresses, which only the screen can judge', () => {
+    expect(junkReason('hello@bullsniff.com')).toBeNull();
+    expect(junkReason('hello@sponsee.app')).toBeNull();
+  });
+
+  it('passes real names, including ones that contain a short role word', () => {
+    for (const email of [
+      'morten@exit1.dev',
+      'jane.smith@acme.co.uk',
+      'helena@x.com',
+      'ahmed@foo.io',
+      'shreya@meterbase.dev',
+      'tschmidt@meterbase.dev',
+      'lynn@meterbase.dev',
+      'jd1990@meterbase.dev',
+      'priya@shop.com.au',
+      'contact@meterbase.dev',
+      'team@meterbase.dev',
+    ]) {
+      expect(junkReason(email), email).toBeNull();
+    }
+  });
+
+  it('rejects random looking local parts', () => {
+    expect(junkReason('a1b2c3d4@meterbase.dev')).toMatch(/hex token/);
+    expect(junkReason('84720193@meterbase.dev')).toMatch(/digits/);
+    expect(junkReason('u2938471@meterbase.dev')).toMatch(/digits/);
+    expect(junkReason('xkqzbrt@meterbase.dev')).toMatch(/vowels/);
+    expect(junkReason('a'.repeat(31) + '@meterbase.dev')).toMatch(/too long/);
+  });
+
+  it('keeps hex shaped words without a digit', () => {
+    expect(junkReason('deadbeef@meterbase.dev')).toBeNull();
+  });
+
+  it('finds role words inside the local part', () => {
+    expect(junkReason('customer-support@meterbase.dev')).toMatch(/support/);
+    expect(junkReason('do-not-reply@meterbase.dev')).toMatch(/donotreply/);
+    expect(junkReason('no.reply@meterbase.dev')).toMatch(/noreply/);
+    expect(junkReason('billing-team@meterbase.dev')).toMatch(/billing/);
+    expect(junkReason('jobs.uk@meterbase.dev')).toMatch(/jobs/);
+    expect(junkReason('helpteam@meterbase.dev')).toMatch(/help/);
+  });
+
+  it('rejects addresses on a subdomain but not on a second level suffix', () => {
+    expect(junkReason('priya@mail.meterbase.dev')).toMatch(/subdomain/);
+    expect(junkReason('priya@a.b.co.uk')).toMatch(/subdomain/);
+    expect(junkReason('priya@co.meterbase.com')).toMatch(/subdomain/);
+    expect(junkReason('priya@meterbase.co.uk')).toBeNull();
+  });
+
+  it('agrees with isDisposableOrJunk', () => {
+    expect(isDisposableOrJunk('562ae1d6@ssh.ephemerals.dev')).toBe(true);
+    expect(isDisposableOrJunk('hello@sponsee.app')).toBe(false);
   });
 });

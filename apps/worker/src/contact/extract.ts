@@ -143,7 +143,12 @@ function looksLikeAsset(emailNorm: string): boolean {
 
 /** Every pure rejection rule in one place. Returns the normalised address, or
  *  null when we refuse it. The MX check is deliberately not here: it is IO,
- *  and it lives in mx.ts. */
+ *  and it lives in mx.ts.
+ *
+ *  Refusing here rather than later is what makes the cascade useful: a step
+ *  that only found junk returns nothing, and the next step gets its turn.
+ *  junkReason in @probe/core (through isDisposableOrJunk) holds the rules for
+ *  generated locals, role words and subdomains. */
 export function acceptAddress(raw: string): string | null {
   const norm = normalizeEmail(raw);
   if (!norm) return null;
