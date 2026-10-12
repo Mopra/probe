@@ -1,5 +1,5 @@
 import { first, getSql } from './client';
-import type { ContactRow } from './types';
+import type { ContactRow, ScreenVerdict } from './types';
 
 /**
  * §8.3: the contact row is written before the suppression and contacted-once
@@ -49,4 +49,23 @@ export async function getContactForLead(leadId: string): Promise<ContactRow | nu
      order by confidence desc, found_at desc
      limit 1
   `);
+}
+
+/**
+ * Records the plausibility screen's verdict (0004), so each contact is judged
+ * once. Overwrites on purpose: the only caller that writes over an existing
+ * verdict is a rule that has since been tightened, and the newer rule wins.
+ */
+export async function setContactScreen(
+  id: string,
+  s: { verdict: ScreenVerdict; reason: string },
+): Promise<void> {
+  const sql = getSql();
+  await sql`
+    update contacts
+       set screen_verdict = ${s.verdict},
+           screen_reason  = ${s.reason},
+           screened_at    = now()
+     where id = ${id}::uuid
+  `;
 }

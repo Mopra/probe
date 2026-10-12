@@ -29,7 +29,7 @@ const CAMPAIGN_COLS = [
 ];
 const CONTACT_COLS = [
   'id', 'lead_id', 'email', 'email_norm', 'email_hash', 'first_name', 'method',
-  'confidence', 'found_at',
+  'confidence', 'found_at', 'screen_verdict', 'screen_reason', 'screened_at',
 ];
 
 /** `p.id as p__id, p.lead_id as p__lead_id, …` */
@@ -107,4 +107,40 @@ export async function getQueueItem(proofId: string): Promise<QueueItem | null> {
   );
   const flat = rows<Record<string, unknown>>(result);
   return flat.length ? toItem(flat[0]) : null;
+}
+
+export interface QueuedSendTarget {
+  send_id: string;
+  lead: LeadRow;
+  contact: ContactRow;
+}
+
+/**
+ * Every `queued` send with the lead and contact behind it, oldest scheduled
+ * first. What `cli screen` walks: the backlog approved before the
+ * plausibility screen existed, which would otherwise only meet the screen one
+ * row at a time at dispatch.
+ *
+ * The send's own contact_id, not the lateral "best contact" join /queue uses:
+ * the row that would be mailed is the one the send points at.
+ */
+export async function listQueuedSendTargets(limit = 1000): Promise<QueuedSendTarget[]> {
+  const sql = getSql();
+  const result = await sql.unsafe(
+    `select s.id as send_id,
+            ${prefixedSelect('l', 'l', LEAD_COLS)},
+            ${prefixedSelect('ct', 'ct', CONTACT_COLS)}
+       from sends s
+       join contacts ct on ct.id = s.contact_id
+       join leads l     on l.id = ct.lead_id
+      where s.status = 'queued'
+      order by s.scheduled_for
+      limit $1`,
+    unsafeParams([clampLimit(limit, 1000, 10_000)]),
+  );
+  return rows<Record<string, unknown>>(result).map((row) => ({
+    send_id: row.send_id as string,
+    lead: unprefix<LeadRow>(row, 'l'),
+    contact: unprefix<ContactRow>(row, 'ct'),
+  }));
 }

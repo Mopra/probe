@@ -60,7 +60,7 @@ export {
   type LeadListItem,
 } from './leads';
 
-export { insertContact, getContactForLead } from './contacts';
+export { insertContact, getContactForLead, setContactScreen } from './contacts';
 
 export {
   isSuppressed,
@@ -85,9 +85,11 @@ export {
 export {
   listQueue,
   getQueueItem,
+  listQueuedSendTargets,
   prefixedSelect,
   unprefix,
   type QueueItem,
+  type QueuedSendTarget,
 } from './queue';
 
 export {

@@ -22,6 +22,7 @@ const OWNED = [
   'REPLY_FORWARD_TO',
   'PRODUCT_HUNT_TOKEN',
   'FINDYMAIL_KEY',
+  'OPENROUTER_API_KEY',
 ];
 
 let saved: Record<string, string | undefined>;

@@ -26,6 +26,8 @@ export interface GlobalConfig {
   bounce_rate_threshold: number;
   rate_window_days: number;
   paid_lookup_monthly_cap: number;
+  /** OpenRouter model id for the contact plausibility screen (0004). */
+  screen_model: string;
 }
 
 export interface CampaignConfig {

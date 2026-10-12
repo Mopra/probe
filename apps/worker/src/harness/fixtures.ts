@@ -141,6 +141,9 @@ export function fixtureContact(over: Partial<ContactRow> = {}): ContactRow {
     method: 'mailto',
     confidence: 90,
     found_at: LAUNCHED_AT,
+    screen_verdict: null,
+    screen_reason: null,
+    screened_at: null,
     ...over,
   };
 }

@@ -48,6 +48,7 @@ beforeEach(() => {
   process.env.PROBE_SEND_ENABLED = 'true';
   process.env.DAY3_API_KEY = GOOD_KEY;
   process.env.DAY3_WEBHOOK_SECRET = 'whsec_abc';
+  process.env.OPENROUTER_API_KEY = 'sk-or-v1-test';
   delete process.env.PROBE_PUBLIC_URL;
   resetEnvCache();
   resetConfigCache();
@@ -129,6 +130,13 @@ describe('sendPreflight', () => {
     const found = inTempCwd(() => sendPreflight());
     expect(found.map((p) => p.key)).toContain('DAY3_WEBHOOK_SECRET');
     expect(found.find((p) => p.key === 'DAY3_WEBHOOK_SECRET')?.problem).toContain('auto-pause');
+  });
+
+  it('catches a missing OpenRouter key, because every contact would defer', () => {
+    writeConfig('Pradsgaard Labs, Vestergade 12, 8000 Aarhus, Denmark');
+    delete process.env.OPENROUTER_API_KEY;
+    resetEnvCache();
+    expect(problems()).toContain('OPENROUTER_API_KEY');
   });
 
   it('catches the placeholder postal address', () => {

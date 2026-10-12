@@ -25,6 +25,14 @@ export type SuppressionReason =
 
 export type ProofStatus = 'pending' | 'ready' | 'failed' | 'no_proof';
 
+/**
+ * The plausibility screen's answer about one contact (0004). 'person' is a
+ * founder's inbox or a small team inbox a founder reads; 'shared' is a real
+ * but departmental inbox; 'junk' is generated, a placeholder, a typo or
+ * unlikely to exist. Rule rejections are recorded as 'junk' too.
+ */
+export type ScreenVerdict = 'person' | 'shared' | 'junk';
+
 export type SendStatus = 'queued' | 'sending' | 'sent' | 'failed' | 'cancelled';
 
 /**
@@ -91,6 +99,10 @@ export interface ContactRow {
   method: string;
   confidence: number;
   found_at: Date;
+  /** Plausibility screen verdict. Only 'person' is sent to. Null: unscreened. */
+  screen_verdict: ScreenVerdict | null;
+  screen_reason: string | null;
+  screened_at: Date | null;
 }
 
 export interface SuppressionRow {

@@ -131,7 +131,13 @@ create table if not exists contacts (
   first_name   text,
   method       text not null,              -- 'mailto' | 'hn_profile' | 'findymail' | …
   confidence   int not null,               -- 0-100
-  found_at     timestamptz not null default now()
+  found_at     timestamptz not null default now(),
+  -- The plausibility screen (0004). Rules first, then an LLM for what passes
+  -- them, written once so neither runs twice for the same address. Only
+  -- 'person' is ever sent to; null means not screened yet.
+  screen_verdict text,                     -- 'person' | 'shared' | 'junk'
+  screen_reason  text,                     -- 'rules: ...' or 'llm 0.92: ...'
+  screened_at    timestamptz
 );
 -- Scoped per lead, not global: the same founder launching a second product is
 -- a real case, and resolution must be able to record the contact so the drop

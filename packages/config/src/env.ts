@@ -20,6 +20,8 @@ export interface Env {
   REPLY_FORWARD_TO?: string;
   PRODUCT_HUNT_TOKEN?: string;
   FINDYMAIL_KEY?: string;
+  /** The plausibility screen's LLM, through OpenRouter. Required to send. */
+  OPENROUTER_API_KEY?: string;
 }
 
 /**
@@ -85,6 +87,7 @@ export function loadEnv(): Env {
     REPLY_FORWARD_TO: opt(src.REPLY_FORWARD_TO),
     PRODUCT_HUNT_TOKEN: opt(src.PRODUCT_HUNT_TOKEN),
     FINDYMAIL_KEY: opt(src.FINDYMAIL_KEY),
+    OPENROUTER_API_KEY: opt(src.OPENROUTER_API_KEY),
   };
 
   cached = env;
@@ -157,6 +160,18 @@ export function sendPreflight(): PreflightProblem[] {
     problems.push({
       key: 'DAY3_WEBHOOK_SECRET',
       problem: 'does not start with whsec_, so it is not a Day3 webhook signing secret.',
+    });
+  }
+
+  if (!env.OPENROUTER_API_KEY) {
+    // Without a key every contact screens as deferred, so nothing is refused
+    // and nothing is sent. Failing at boot says that once, instead of a quiet
+    // queue that never moves.
+    problems.push({
+      key: 'OPENROUTER_API_KEY',
+      problem:
+        'not set. Every contact is screened for plausibility before it is mailed, and ' +
+        'without the key the screen defers every address, so nothing would send.',
     });
   }
 

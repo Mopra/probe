@@ -19,6 +19,7 @@ describe('constants', () => {
       'no_proof',
       'generator_failed',
       'undeliverable',
+      'implausible_address',
     ]);
   });
 

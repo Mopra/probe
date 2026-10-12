@@ -132,6 +132,7 @@ describe('MATCHED_OR_BEYOND_DROP_REASONS', () => {
       'no_proof',
       'generator_failed',
       'undeliverable',
+      'implausible_address',
     ]);
   });
 

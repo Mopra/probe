@@ -136,6 +136,7 @@ export const MATCHED_OR_BEYOND_DROP_REASONS = [
   'no_proof',
   'generator_failed',
   'undeliverable',
+  'implausible_address',
 ] as const;
 
 /** Terminal lead status implied by a drop reason (§8.2). */

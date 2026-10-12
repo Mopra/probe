@@ -121,6 +121,10 @@ export const GlobalSchema = z.object({
   bounce_rate_threshold: z.number().min(0).max(1).default(0.03),
   rate_window_days: z.number().int().min(1).default(7),
   paid_lookup_monthly_cap: z.number().int().min(0).default(50),
+  // The OpenRouter model that judges whether a contact is plausibly a
+  // founder's inbox (0004). A small model is enough: the question is one
+  // address and a product name, and the answer is one word of JSON.
+  screen_model: z.string().trim().min(1).default('openai/gpt-5.4-nano'),
 });
 
 export const CampaignSchema = z.object({

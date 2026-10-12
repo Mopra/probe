@@ -25,7 +25,8 @@ export type DropReason =
   | 'no_contact'
   | 'no_proof'
   | 'generator_failed'
-  | 'undeliverable';
+  | 'undeliverable'
+  | 'implausible_address';
 
 /** Stable order, used for the /health breakdown table. */
 export const DROP_REASONS: DropReason[] = [
@@ -38,6 +39,7 @@ export const DROP_REASONS: DropReason[] = [
   'no_proof',
   'generator_failed',
   'undeliverable',
+  'implausible_address',
 ];
 
 /** Labels taken verbatim from the §8.2 drop accounting table. */
@@ -51,4 +53,5 @@ export const DROP_REASON_LABELS: Record<DropReason, string> = {
   no_proof: 'Generator returned 204',
   generator_failed: '3 failed attempts or 2 hours pending',
   undeliverable: 'Domain stopped accepting mail before approval',
+  implausible_address: 'Address looks generated, shared or unlikely to exist',
 };
